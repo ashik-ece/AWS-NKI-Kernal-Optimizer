@@ -10,3 +10,6 @@ started	seat	name	features	commit	args
 2026-10-10 13:26	157	origin-l3	facts,origin	c41a7d5	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
 2026-10-10 13:26	159	origin-l4	facts,origin	c41a7d5	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
 # 413e595-dirty rows: only pod.sh differed from 413e595 (a fix to launching in the background). agent.py and diagnose.py on those seats were 413e595.
+2026-10-10 13:43	153	checker-l3	internal,origin	39b8e5a	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 13:43	159	checker-l4	internal,origin	39b8e5a	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 13:44	150	checker-l1	internal,origin	39b8e5a	--level 1 --rounds 8 --samples 4 --context 8192 --repeat 5
