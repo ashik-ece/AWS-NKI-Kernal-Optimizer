@@ -971,6 +971,25 @@ def selftest():
     tall_rc = 0 if ok and ok0 else 1
     print()
 
+    # The worked example that --features example shows the model. It has to be right.
+    import numpy as _np
+    import agent as _agent
+    ex_path = "/tmp/_diagnose_example.py"
+    open(ex_path, "w").write(_agent.TILING_EXAMPLE)
+    a = _np.arange(256 * 1024, dtype=_np.float32).reshape(256, 1024)
+    ex_ok, ex_note = False, ""
+    try:
+        with watching(ex_path) as ew:
+            got, _ = nkibench.simulate_and_count(nkibench.load_kernel(ex_path, "copy_in_pieces"), [a])
+        ex_ok = _np.array_equal(_np.asarray(got), a) and not ew.tall
+        ex_note = "" if ex_ok else f"wrong output or a tall tile: {ew.tall[:1]}"
+    except Exception as e:
+        ex_note = f"raised {type(e).__name__}: {str(e)[:120]}"
+    print(f"  the worked tiling example: runs, copies exactly, no tile over 128 rows -> "
+          f"{'ok' if ex_ok else 'FAIL  ' + ex_note}")
+    example_rc = 0 if ex_ok else 1
+    print()
+
     # The control. If the untouched references do not run, a plant's failure proves nothing --
     # and watching a simulation must not change what it computes, or the watcher is the bug.
     import numpy as np
@@ -1072,13 +1091,16 @@ def selftest():
     print("Too tall for the chip: " + ("the planted tile was caught and the reference was not."
                                        if tall_rc == 0 else
                                        "SOMETHING FAILED. Do not use --features strict until this passes."))
+    print("Worked example: " + ("it runs, it is correct, and no tile in it is too tall."
+                                if example_rc == 0 else
+                                "SOMETHING FAILED. Do not use --features example until this passes."))
     print("Missing names: " + ("the planted name was explained." if names_rc == 0 else
                                "SOMETHING FAILED. Do not use --features names until this passes."))
     print("Looking ahead: " + ("every planted case was explained by its later use."
                                if ahead_rc == 0 else
                                "SOMETHING FAILED. Do not use --features ahead until this passes."))
     return rc | (state_rc << 1) | (origin_rc << 2) | (pieces_rc << 3) | (ahead_rc << 4) \
-        | (tall_rc << 5) | (names_rc << 6)
+        | (tall_rc << 5) | (names_rc << 6) | (example_rc << 7)
 
 
 def replay(log_path, level=None, features=("locate", "state")):
