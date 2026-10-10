@@ -78,3 +78,17 @@ round 1: same failure again (0.62, best so far 0.62)
   same failure 2x — adding a ledger of 1 failed attempts to break the repeat
 round 2: same failure again (0.62, best so far 0.62)
   same failure 3x — adding a ledger of 1 failed attempts to break the repeat
+round 3: same failure again (0.62, best so far 0.62)
+  STOPPING this level: the identical failure 4 rounds running. The agent is cycling between a fixed set of mistakes rather than converging, so more rounds will not help. Failures seen:
+    4x  1 of 4 shapes passed. On K=256 M=256 N=1024: raised AssertionError: dma_copy dst partition dimension 256 excee
+
+=========== summary ===========
+  level 4  reward 0.62 after 4 round(s)
+  solved 0/1
+
+=========== over 5 runs ===========
+  level 4: solved 0/5  best 0.62  worst 0.30  mean 0.56  all=[0.62, 0.62, 0.62, 0.3, 0.62]
+
+  Report the rate, not your best run. A level that solves 1 in 3 times is not solved.
+
+attempts logged to base-r16-l4.jsonl
