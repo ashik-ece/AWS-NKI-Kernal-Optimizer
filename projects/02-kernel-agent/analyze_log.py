@@ -244,6 +244,24 @@ def summarise(episodes):
     return by
 
 
+
+def report_diversity(episodes):
+    """Show whether parallel samples produce distinct repair evidence."""
+    print("\n  Sample diversity per round (distinct feedback / samples):")
+    for run_no, episode in enumerate(episodes, 1):
+        ratios = []
+        for rnd in episode["rounds"]:
+            if not rnd:
+                continue
+            unique = len({sample.get("feedback", "") for sample in rnd})
+            ratios.append((unique, len(rnd)))
+        if not ratios:
+            continue
+        path = " -> ".join(f"{unique}/{count}" for unique, count in ratios)
+        mean = sum(unique / count for unique, count in ratios) / len(ratios)
+        print(f"    run {run_no}: {path}  (mean {mean:.2f})")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("logs", nargs="+", help="one or more attempt logs (.jsonl)")
@@ -251,6 +269,8 @@ def main():
     ap.add_argument("--show", type=int, default=0, metavar="N",
                     help="print N distinct example kernels for each of the commonest failures")
     ap.add_argument("--summary", action="store_true", help="only the side-by-side table")
+    ap.add_argument("--diversity", action="store_true",
+                    help="report distinct feedback outcomes per sampling round")
     a = ap.parse_args()
 
     loaded = {}
@@ -266,6 +286,8 @@ def main():
             for level in sorted(by):
                 if a.level in (None, level):
                     report_level(level, by[level], a.show)
+                if a.diversity:
+                    report_diversity(by[level])
 
     print(f"\n{'=' * 78}\nSIDE BY SIDE   solved / runs, then the best score of every run\n{'=' * 78}")
     levels = sorted({lv for by in loaded.values() for lv in by})
