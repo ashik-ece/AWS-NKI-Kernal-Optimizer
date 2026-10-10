@@ -408,12 +408,22 @@ def first_prompt(level, terse=0):
                 f"nisa.dma_copy(dst=, src=), loop with nl.affine_range(n). A tile's partition "
                 f"dimension is at most {nkibench.PMAX}.\n{mm}\n"
                 f"Reply with one python code block.")
+    pool_hint = (
+        "For average pooling only: do NOT use nisa.nc_matmul or nl.psum. "
+        "Use this exact plan: DMA the 3-D input into nl.sbuf; create a strided "
+        "5-D pooling view with .ap(...); reduce the two pooling axes with "
+        "nl.sum(..., axis=[3, 4]); scale it with nisa.tensor_scalar using "
+        "1.0 / (pool_size * pool_size) into an nl.sbuf output; then DMA the "
+        "output to HBM.\n\n"
+        if level == 1 else ""
+    )
     return (
         f"Write an AWS Neuron NKI kernel.\n\n"
         f"Operation: {s['op']}\n"
         f"Entry point: a function named `{s['entry']}`, decorated with `@nki.jit`.\n"
         f"It must compute exactly what this NumPy reference computes:\n\n"
         f"{inspect.getsource(s['ref'])}\n"
+        f"{pool_hint}"
         f"Hardware limits: a tile's partition dimension is at most {nkibench.PMAX}. For matmul, "
         f"the stationary free dimension is at most {nkibench.GEMM_STATIONARY_FMAX} and the "
         f"moving free dimension at most {nkibench.GEMM_MOVING_FMAX}.\n\n"
