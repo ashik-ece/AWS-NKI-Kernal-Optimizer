@@ -29,16 +29,18 @@ move, because it fails on the algorithm, which no checker message can reach.
 
 The reported checker is the flag set `internal,origin`. Its two level 3 runs (`39b8e5a` on seat 153,
 `ec306f1` on seat 157) are pooled because the code under `projects/` is byte-identical between those commits
-(`git diff 39b8e5a ec306f1 -- projects` is empty). For later commits, a replay of 235 distinct failing kernels
-gives identical feedback (`results/replay-internal-origin-39b8e5a-vs-16dcf94.txt`); that replay ran against the
-laptop stand-in simulator, so it shows the code takes the same path through the same errors, not that those
-errors are the real simulator's.
+(`git diff 39b8e5a ec306f1 -- projects` is empty). Replaying every logged kernel against the final code
+(`results/replay-internal-origin-39b8e5a-vs-final.txt`) gives identical `internal,origin` feedback on levels 1
+to 3, and different feedback on 7 level 4 kernels, from a wording change at 14:24 for too-tall tiles; no pooled
+run crosses that change (the level 4 checker row is one run, at `39b8e5a`). The replays ran against the laptop
+stand-in simulator, so they show the code takes the same path through the same errors, not that those errors
+are the real simulator's.
 
 | Level | Baseline (15 runs) | Checker `internal,origin` | + `ahead`, first version (`16dcf94`) | + `ahead`, fixed (`11fbb86`) | Prompt C, short (level 1) |
 |---|---|---|---|---|---|
 | 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | not run | not run | 0/5, always 0.30, but **algorithm fixed**: `nc_matmul` 0/104 attempts (baseline 160/160), `nl.sum` 103/104 (0) |
 | 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | 3/5 (noise range) | 3/9 completed (noise range) | n/a |
-| 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | **10/10 on two chips; 8 in 4 rounds, 2 in 7** | 8/10 on two chips (run 1 failed on both); solves in 4 or 5 rounds | n/a |
+| 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | **10/10 on two chips; 8 in 4 rounds, 2 in 7** | 8/10 as scored, **6/10 chip-valid** (2 return the result from PSUM); run 1 failed on both chips | n/a |
 | 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** as scored; **with the 128-row rule enforced (`strict`): 0.62 in 5 of 6 runs, 0.50 in 1** | not run alone; with `pieces`: **0.62** (1 run, regressed) | 0.75 in 4 of 5 completed runs, 0.62 in 1 (as scored) | n/a |
 
 Other flag sets, all reported: `pieces` on level 4 at 8 rounds scored 0.75, 0.62 and 0.50, so it is not
@@ -126,6 +128,11 @@ Full taxonomy with examples: `report/01-baseline-and-taxonomy.md` (section 2b fo
   scores it and 0.62 under its own rule; what moved is the failure (the model now tiles K), not a real score. `strict` is off in every reported run and leaves the `internal,origin` feedback
   unchanged (replay, 303 kernels, 0 differences).
 - **Simulator only.** Every number is CPU simulation; no kernel ran on the device and no latency was measured.
+  The simulator also accepts a kernel that returns its result from PSUM instead of HBM, which the chip would
+  not. All 6 reportable-checker solves and all 10 first-`ahead` solves return from HBM; 2 of the 8 fixed-`ahead`
+  solves (seat 150, runs 2 and 4) do not, so that row is 6/10 chip-valid. We checked every solve for this.
+- **A harness bug, found and fixed.** Stale Python bytecode could grade one sample as another of the same
+  length. Regrading the 3 suspicious records of 4,344 changed none, so no logged score is affected.
 - **Prompt change C** (level 1) is reported separately, no checker flags. The short hint measured (seat 155,
   `e29cc01` on `0278dc1`), verbatim: "Average pooling is a per-window sum followed by a scale; it needs no
   matrix multiplication. Use a strided view of pooling windows and nl.sum for the reduction." It changed the
