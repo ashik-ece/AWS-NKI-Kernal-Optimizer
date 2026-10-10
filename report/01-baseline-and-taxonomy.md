@@ -156,7 +156,9 @@ Logs: baseline seat-152; checker `internal,origin` seats 153 + 157 (level 3), 15
 
 - Type 4a (no tiling) went from 70 of 80 to 15 of 120: the model now tiles K. Under the checker it fails at
   the matmul: 80 on "stationary free dimension > 128" (M per tile), 20 on "contraction > 128". That is the
-  0.62 -> 0.75 step: the next rule (M <= 128 per tile) is the wall now.
+  0.62 -> 0.75 step: the next rule (M <= 128 per tile) is the wall now. Caveat: 22 of the 23 distinct
+  0.75 kernels still allocate a tile taller than 128 rows and pass only 128-row slices to each instruction,
+  which the harness does not reject; with that rule enforced (`strict`) they score 0.62.
 - `pieces` moves the failure one step further (69 at the PSUM -> SBUF copy, which has 256 rows) without
   changing the score, 0.75.
 - `pieces,ahead` explains its regression to 0.62: only 26 of 52 failing kernels loop, against 104 of 120
