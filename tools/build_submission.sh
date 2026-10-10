@@ -4,6 +4,8 @@
 #   tools/build_submission.sh "Team 31"            build it locally and show what would be submitted
 #   tools/build_submission.sh "Team 31" --push     also fork, push the branch and open the PR
 #
+#   LEVEL3="9 of 12" tools/build_submission.sh ...  the level 3 result as the final note states it
+#
 # It starts from a fresh clone of yahavb/trainium-agent-labs at master, so none of this team repo's
 # history comes along -- only files. Into that clone it copies, from this team repo as it is on GitHub:
 #
@@ -25,8 +27,14 @@ PUSH=${2:-}
 UPSTREAM=yahavb/trainium-agent-labs
 BRANCH=${BRANCH:-kernel-agent-checker}
 NOTE=${NOTE:-}
+LEVEL3=${LEVEL3:?set LEVEL3 to the final level 3 result from the note, e.g. LEVEL3="9 of 12"}
 TEAM_REPO=$(cd "$(dirname "$0")/.." && pwd)
 PROJ=projects/02-kernel-agent
+# The team, credited as co-authors of the commit and named in the PR. GitHub links a co-author by
+# the noreply address of their account.
+COAUTHORS=("Ashik M John <138590481+ashik-ece@users.noreply.github.com>"
+           "Perumal Marimuthu <102660995+Perumal100@users.noreply.github.com>")
+TEAMMATES=(ashik-ece Perumal100)
 
 echo "== fetching the team repo's dev and john-manage"
 git -C "$TEAM_REPO" fetch -q origin dev john-manage
@@ -78,17 +86,19 @@ find . -name '__pycache__' -prune -exec rm -rf {} +
 git add -A
 git -c user.name="$(git -C "$TEAM_REPO" config user.name)" \
     -c user.email="$(git -C "$TEAM_REPO" config user.email)" \
-    commit -q -m "$TEAM: kernel agent -- a checker that names the kernel's mistake, and holes found in the harness"
+    commit -q -m "$TEAM: kernel agent -- a checker that names the kernel's mistake, and holes found in the harness" \
+    -m "$(printf 'Co-authored-by: %s\n' "${COAUTHORS[@]}")"
 echo "== what would be submitted (against the organisers' master)"
 git diff --stat origin/master HEAD | tail -15
 echo "   $(git diff --name-only origin/master HEAD | wc -l | tr -d ' ') files; $(du -sh "$SUB/results" | cut -f1) of results"
 
 cat > "$WORK/pr-body.md" <<EOF
 **$TEAM, project 2: the kernel agent.** We changed what the checker tells the model, and measured it.
+Team: @ashik-ece (measurement and write-up), @Achyuthan-S (checker), @Perumal100 (agent and prompt).
 Start with [\`$SUB/NOTE.md\`]($SUB/NOTE.md); paths in it are relative to \`$SUB/\`.
 
-- **Level 3 solved.** 0.30 in all 15 baseline runs. Solved by the checker in 6 of 7 completed runs, on two
-  chips, with only the feedback changed. The round-by-round recovery: \`$SUB/results/level3-recovery-transcript.md\`.
+- **Level 3 solved.** 0.30 in all 15 baseline runs. Solved by the checker in $LEVEL3 completed runs,
+  with only the feedback changed. The round-by-round recovery: \`$SUB/results/level3-recovery-transcript.md\`.
 - **Holes in the harness, each with a repro kernel** in \`$PROJ/findings/\`, run through \`nkibench.py --check\`
   on the real simulator (\`$SUB/results/seat-150/findings.out\`): on-chip tiles taller than 128 rows and
   kernels returning their output from PSUM both pass; the rule scan sees \`(256, M)\` but not \`(K, M)\`; two
@@ -117,6 +127,17 @@ gh repo fork "$UPSTREAM" --clone=false --remote=false >/dev/null 2>&1 || true
 for i in 1 2 3 4 5 6; do gh api "repos/$OWNER/trainium-agent-labs" >/dev/null 2>&1 && break; sleep 5; done
 git push -q -f "https://github.com/$OWNER/trainium-agent-labs.git" "$BRANCH"
 echo "== opening the pull request"
-gh pr create --repo "$UPSTREAM" --base master --head "$OWNER:$BRANCH" \
+URL=$(gh pr create --repo "$UPSTREAM" --base master --head "$OWNER:$BRANCH" \
   --title "$TEAM: kernel agent -- a checker that names the kernel's mistake, and holes found in the harness" \
-  --body-file "$WORK/pr-body.md"
+  --body-file "$WORK/pr-body.md")
+echo "$URL"
+echo "== assignees"
+# Only people with access to the organisers' repo can be assigned there, so this may be refused.
+# The co-author lines and the @-mentions credit the team either way.
+for who in "$OWNER" "${TEAMMATES[@]}"; do
+  if gh pr edit "$URL" --add-assignee "$who" >/dev/null 2>&1; then
+    echo "   assigned $who"
+  else
+    echo "   GitHub refused to assign $who (no access to $UPSTREAM); credited as co-author and @-mentioned instead"
+  fi
+done
