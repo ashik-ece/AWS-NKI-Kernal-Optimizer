@@ -539,6 +539,9 @@ def solve(a, level, log):
                                       features=sorted(FEATURES))) + "\n")
         log.flush()
         graded.sort(key=lambda g: g[0], reverse=True)
+        distinct_feedback = len({g[2] for g in graded})
+        print(f"  sample diversity: {distinct_feedback}/{len(graded)} distinct feedback outcome(s)")
+
         top = graded[0]
         if top[0] > best[0]:
             best = (top[0], top[1], top[2])
