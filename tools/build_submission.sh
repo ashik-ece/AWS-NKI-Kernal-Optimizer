@@ -98,7 +98,8 @@ Team: @ashik-ece (measurement and write-up), @Achyuthan-S (checker), @Perumal100
 Start with [\`$SUB/NOTE.md\`]($SUB/NOTE.md); paths in it are relative to \`$SUB/\`.
 
 - **Level 3 solved.** 0.30 in all 15 baseline runs. Solved by the checker in $LEVEL3 completed runs,
-  with only the feedback changed. The round-by-round recovery: \`$SUB/results/level3-recovery-transcript.md\`.
+  with only the feedback changed. **Verified on the real chip:** the agent's three distinct solutions are correct
+  on Trainium2 on the test shape and on four hostile inputs, 15 of 15 (\`$SUB/results/seat-150/device.out\`). The round-by-round recovery: \`$SUB/results/level3-recovery-transcript.md\`.
 - **Holes in the harness, each with a repro kernel** in \`$PROJ/findings/\`, run through \`nkibench.py --check\`
   on the real simulator (\`$SUB/results/seat-150/findings.out\`): on-chip tiles taller than 128 rows and
   kernels returning their output from PSUM both pass; the rule scan sees \`(256, M)\` but not \`(K, M)\`; two
@@ -110,7 +111,11 @@ Start with [\`$SUB/NOTE.md\`]($SUB/NOTE.md); paths in it are relative to \`$SUB/
   first prompt carries a worked plan ("prompt C"), and each candidate is written to its own file (the bytecode
   fix). Every run, its seat, commit and flags: \`$SUB/results/RUNS.tsv\`.
 
-Nothing here was timed on the device; all numbers come from \`nki.simulate\`.
+- **Two of the holes confirmed on the chip.** The tall-tile and PSUM-output kernels pass every case in the
+  simulator and fail the chip's compiler on every case where the hole is present.
+
+Scores come from \`nki.simulate\`; the level 3 solutions and the findings were also run on the chip, by calling the
+compiled kernel directly, the method in Team 20's device check. Nothing was timed.
 
 **The team.** If this work interests you, we would be glad to talk.
 - Ashik M John, measurement and write-up: [LinkedIn](https://www.linkedin.com/in/ashik-dev/) · @ashik-ece

@@ -95,7 +95,11 @@ def main():
             try:
                 d = check(fn[LNC](*args), want)
             except Exception as e:
-                d = f"RAISED {type(e).__name__}: {' '.join(str(e).split())[:140]}"
+                # The compiler's own words are the evidence, so keep enough of them to read.
+                msg = " ".join(str(e).split())
+                key = next((m for m in ("Allocated memory", "must be a shared_hbm", "NCC_") if m in msg), None)
+                start = max(0, msg.find(key) - 40) if key else 0
+                d = f"RAISED {type(e).__name__}: {msg[start:start + 400]}"
             print(f"   {label:28s} simulator: {s[:60]:60s} chip: {d}")
             rows.append((path, label, s, d))
         print()
