@@ -142,7 +142,10 @@ Code `e29cc01` (= `0278dc1` + the short hint), `--features '' --level 1`, frozen
 branch. The jsonl holds 6 sessions; only the last (104 attempts, reps 0-4, round-0 prompt 2,484 chars vs
 2,323 for seat-154's baseline on `0278dc1`) is the measured repeat. Result 0/5, always 0.30.
 Algorithm moved: `nc_matmul` 0/104, `nl.sum` 103/104, `1/p^2` scale 79/104. Failures: fixed `(128, 128)` tile
-80, missing `pool_size` argument 24. Not in `RUNS.tsv` (run outside `pod.sh run`).
+80, missing `pool_size` argument 24. Not in `RUNS.tsv` (run outside `pod.sh run`). Harness not verified:
+seat 155's `nkibench.py` later differed by hash from ours and was overwritten with the organisers' copy
+before the detailed run; whether the difference was only Windows line endings was not checked. The algorithm
+counts come from the model's code and do not depend on the harness; the 0/5 does.
 
 ### Prompt C, detailed recipe (seat 155, `Perumal/Level1-Prompt` at `02ebfe1`)
 

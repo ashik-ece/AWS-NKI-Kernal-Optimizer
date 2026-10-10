@@ -29,7 +29,7 @@ the organisers' untouched code. Levels 1, 3 and 4 never varied across them.
 
 A one-sentence prompt hint on level 1 ("a per-window sum followed by a scale; no matrix multiplication")
 scored 0/5 but **fixed the algorithm**: matrix multiply in 0 of 104 attempts (baseline 160 of 160), `nl.sum`
-in 103. Given the full recipe instead (strided `.ap()` view, `nl.sum`, scale by `1/(p*p)`), it followed it in
+in 103 (the harness on that seat was not verified for this run; the finding is in the code, not the score). Given the full recipe instead (strided `.ap()` view, `nl.sum`, scale by `1/(p*p)`), it followed it in
 100 of 100 attempts and still scored 0/5: 80 attempts failed copying the input into a fixed `(C, 128, 128)`
 tile, the same tile-sizing error as level 3, answered with the same misleading `128x512` example. So level 1
 is blocked by the error level 3's checker fixes, not only by the algorithm. With the checker as well:
