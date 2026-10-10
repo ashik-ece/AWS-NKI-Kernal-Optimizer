@@ -1,0 +1,35 @@
+features ['facts', 'locate', 'origin', 'state']
+endpoint http://localhost:8000/v1  model Qwen/Qwen3-8B
+
+################ run 1 of 5 ################
+
+=========== level 3: matmul, single tile ===========
+round 0: this round 0.30  best so far 0.30  (59.7s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 10, `psum = nl.ndarray(shape=lhsT.shape[1:], dtype=nl.float32, buffer=nl.psum)`, raised AssertionError: SBUF and PSUM tensors must have at least 2 dimensions (partition-dim and free-dim) At that line: `lhsT` is (128, 64) in HBM (an input). A tile on the chip needs at least 2 dimensions, the partition dimension first: this shape has 1.
+round 1: same failure again (0.30, best so far 0.30)
+  same failure 2x — adding a ledger of 1 failed attempts to break the repeat
+round 2: this round 0.30  best so far 0.30  (59.7s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 10, `psum = nl.ndarray(shape=(lhsT.shape[1], lhsT.shape[2]), dtype=nl.float32, buffer=nl.psum)`, raised IndexError: tuple index out of range At that line: `lhsT` is (128, 64) in HBM (an input).
+round 3: same failure again (0.30, best so far 0.30)
+  same failure 2x — adding a ledger of 2 failed attempts to break the repeat
+round 4: this round 0.30  best so far 0.30  (59.5s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 21, `nisa.nc_matmul(dst=psum, stationary=sbuf_stationary, moving=sbuf_moving)`, raised ValueError: cannot reshape array of size 32768 into shape (64,128) At that line: `psum` is (64, 128) in psum; `sbuf_stationary` is (128, 64) in sbuf; `sbuf_moving` is (128, 512) in sbuf. The result of nc_matmul has stationary's second dimension as its first and mov
+round 5: this round 0.30  best so far 0.30  (59.5s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 24, `nisa.tensor_copy(dst=sbuf_moving, src=psum)`, raised ValueError: shape mismatch: value array of shape (32768,) could not be broadcast to indexing result of shape (65536,) At that line: `sbuf_moving` is (128, 512) in sbuf; `psum` is (64, 512) in psum. The two sides of a tensor_copy must hold the same number of elements, because it does not slice,
+round 6: this round 0.30  best so far 0.30  (61.4s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 18, `nisa.dma_copy(dst=sbuf_moving, src=rhs)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=65536, dst=32768 At that line: `sbuf_moving` is (128, 256) in sbuf; `rhs` is (128, 512) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshap
+round 7: this round 0.30  best so far 0.30  (60.7s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 24, `nisa.tensor_copy(dst=sbuf_moving, src=psum)`, raised ValueError: shape mismatch: value array of shape (32768,) could not be broadcast to indexing result of shape (65536,) At that line: `sbuf_moving` is (128, 512) in sbuf; `psum` is (64, 512) in psum. The two sides of a tensor_copy must hold the same number of elements, because it does not slice,
+  not solved in 8 rounds; best reward 0.30
+
+=========== summary ===========
+  level 3  reward 0.30 after 8 round(s)
+  solved 0/1
+
+################ run 2 of 5 ################
+
+=========== level 3: matmul, single tile ===========
+round 0: this round 0.30  best so far 0.30  (56.8s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 14, `nisa.dma_copy(dst=sbuf_tile, src=lhsT)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=8192, dst=65536 At that line: `sbuf_tile` is (128, 512) in sbuf; `lhsT` is (128, 64) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or
+round 1: this round 0.30  best so far 0.30  (56.3s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 16, `nisa.dma_copy(dst=sbuf_tile[0:128, 0:64], src=rhs)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=65536, dst=8192 At that line: `sbuf_tile` is (128, 64) in sbuf; `rhs` is (128, 512) in HBM (an input); dst `sbuf_tile[0:128, 0:64]` is (128, 64) in sbuf. The two sides of a dma_copy must hold the 

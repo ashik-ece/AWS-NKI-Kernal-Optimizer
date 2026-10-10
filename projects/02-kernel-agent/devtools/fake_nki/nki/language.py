@@ -41,5 +41,6 @@ def affine_range(n):
 def ndarray(shape, dtype=np.float32, buffer=None):
     shape = tuple(shape)
     if buffer in (sbuf, psum) and len(shape) < 2:
-        raise ValueError("SBUF and PSUM tensors must have at least 2 dimensions")
+        raise AssertionError("SBUF and PSUM tensors must have at least 2 dimensions "
+                             "(partition-dim and free-dim)")
     return _Tensor(np.zeros(shape, dtype), buffer)
