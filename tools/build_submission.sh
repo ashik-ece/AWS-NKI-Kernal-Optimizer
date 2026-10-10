@@ -126,6 +126,14 @@ echo "== forking $UPSTREAM to $OWNER (no-op if the fork exists)"
 gh repo fork "$UPSTREAM" --clone=false --remote=false >/dev/null 2>&1 || true
 for i in 1 2 3 4 5 6; do gh api "repos/$OWNER/trainium-agent-labs" >/dev/null 2>&1 && break; sleep 5; done
 git push -q -f "https://github.com/$OWNER/trainium-agent-labs.git" "$BRANCH"
+URL=$(gh pr list --repo "$UPSTREAM" --head "$BRANCH" --author "$OWNER" --state open --json url --jq '.[0].url // empty')
+if [ -n "$URL" ]; then
+  # The branch push above has already updated the open PR's files. Bring its text up to date too.
+  echo "== updating the open pull request $URL"
+  gh pr edit "$URL" --body-file "$WORK/pr-body.md" >/dev/null
+  echo "$URL"
+  exit 0
+fi
 echo "== opening the pull request"
 URL=$(gh pr create --repo "$UPSTREAM" --base master --head "$OWNER:$BRANCH" \
   --title "$TEAM: kernel agent -- a checker that names the kernel's mistake, and holes found in the harness" \
