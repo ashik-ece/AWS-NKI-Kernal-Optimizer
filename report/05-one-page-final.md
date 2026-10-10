@@ -39,9 +39,22 @@ in 103. The detailed recipe: **[18:00: l1-detailed-b]**.
 | `facts,origin` | the line that gave the wrong tile its shape; rule replaces all advice | 0/5 |
 | `internal,origin` | the same, but advice dropped only for numpy errors inside the simulator | **4/5** |
 
-Naming the line was not enough; the model needed the line where the tile got its shape, and the misleading
-advice removed. The failures moved where the new information pointed: the baseline never got past loading the
-inputs (0 of 84 failed attempts); under the checker 64% got to the matmul or later.
+Naming the line was not enough; the model needed the line where the tile got its shape, and the advice dropped
+where it was keyed on numpy errors from inside the simulator. The failures moved where the new information
+pointed: the baseline never got past loading the inputs (0 of 84 failed attempts); under the checker 64% got
+to the matmul or later. **Demo:** `results/level3-recovery-transcript.md`, one run, every message verbatim:
+the model fixes the tile each message points to, one per round, and solves in round 5. Round 0 still carries
+the old "(1, N)" hint and the model follows it in round 1; the next message's pointer to the line that set the
+tile's shape is what recovers it.
+
+## Holes in the scoring, reproduced on the real simulator
+
+Six repro kernels in `projects/02-kernel-agent/findings/`, each run through the organisers' own
+`nkibench.py --check` (output: `results/seat-150/findings.out`). Two pass that shouldn't: a level 4 kernel
+with 256- and 512-row SBUF tiles (4 of 4 shapes), and a level 3 kernel returning its PSUM tile (1 of 1). The
+rule scan catches a tile written `(256, M)` but not `(K, M)`. Two messages mislead: "cannot reshape" for a
+kernel with no reshape, and a moving-operand limit when both operands are within limits. And the agent's
+reused file path served a stale kernel's bytecode.
 
 ## Why it was stuck (taxonomy of all 416 baseline attempts)
 
@@ -65,8 +78,8 @@ inputs (0 of 84 failed attempts); under the checker 64% got to the matmul or lat
 - **Simulator only.** It also accepts a result returned from PSUM; we checked every solve, and all checker
   and first-`ahead` solves return from HBM.
 - **Pooling across commits** only where a replay of every logged kernel gives identical feedback.
-- **A grading bug in the agent, fixed:** candidates shared one file path, so importlib's bytecode cache could
-  grade one sample as another; no logged score changed. The harness is the organisers' copy, byte for byte.
+- **The bytecode bug is fixed** in the agent; no logged score changed. The harness is the organisers' copy,
+  byte for byte.
 
 ## Conclusion
 
@@ -74,5 +87,5 @@ One wall fell cleanly. Level 3 went from 0 of 15 to [18:00] of [18:00] runs, eve
 rules, by changing only what the checker says. Level 4's kernels learned to tile, but their higher score
 depends on a tile the harness fails to reject, so honestly it is still 0.62. Level 1 needs the algorithm, not
 better errors: one sentence of prompt fixed the method, not the score. The largest lesson: the existing
-feedback was not just vague but misleading in two places, and removing bad advice mattered as much as adding
-precise facts.
+feedback was not just vague but misleading, and pointing at the line that caused the error mattered more than
+describing the error better.
