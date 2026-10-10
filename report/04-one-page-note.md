@@ -9,7 +9,7 @@ The organisers' kernel agent sat at fixed scores on three levels: 0.30 (level 1)
 (level 4). Their reading was that the model does not understand tiling. Ours: **on levels 3 and 4 the model
 was stuck because the checker's feedback described the simulator's crash instead of the kernel's mistake, and
 in two places the feedback told it to do the wrong thing.** Changing only what the checker says solved level 3
-in 4 of 5 runs and lifted level 4 from 0.62 to 0.75 in 5 of 5. Level 1 did not move, because it fails on the
+in 6 of 7 completed runs on two chips and lifted level 4 from 0.62 to 0.75 in 5 of 5. Level 1 did not move, because it fails on the
 algorithm, which no checker message can reach.
 
 ## What we ran
@@ -24,19 +24,25 @@ algorithm, which no checker message can reach.
 
 ## Results (solved / runs; every run's best score in brackets where it varies)
 
-The reported checker is the flag set `internal,origin`. It has produced identical feedback at every commit
-since `39b8e5a` (replayed on all 241 distinct failing kernels in our logs, zero differences; TODO: file in
-`results/`), so its runs are pooled across commits.
+The reported checker is the flag set `internal,origin`. Its two level 3 runs (`39b8e5a` on seat 153,
+`ec306f1` on seat 157) are pooled because the code under `projects/` is byte-identical between those commits
+(`git diff 39b8e5a ec306f1 -- projects` is empty). For later commits, a replay of 235 distinct failing kernels
+gives identical feedback (`results/replay-internal-origin-39b8e5a-vs-16dcf94.txt`); that replay ran against the
+laptop stand-in simulator, so it shows the code takes the same path through the same errors, not that those
+errors are the real simulator's.
 
 | Level | Baseline (15 runs) | Checker `internal,origin` | TODO: `ahead` / `pieces` | Prompt C, short (level 1) |
 |---|---|---|---|---|
 | 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | n/a | 0/5, always 0.30 (failure type moved; TODO verify) |
 | 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | TODO | n/a |
-| 3 matmul, one tile | 0/15, always 0.30 | **6/8** on two chips [1, 1, 0.3, 1, 1 / 1, 1, 0.3] | TODO | n/a |
+| 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | TODO | n/a |
 | 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** | TODO | n/a |
 
-Level 3's solves came by **two different paths** (seat 153: runs 1, 2, 4 share one; run 5 starts from a
-different kernel), and the same flags on a second chip (seat 157) solved 2 of 3. Level 2 moves between 1/5 and 3/5 in
+An eighth level 3 run (seat 157, run 3) stopped after round 3 with no error and no summary line; every solving
+run was also still at 0.30 at round 3, so it says nothing either way. Counted as unsolved, the figure is 6 of 8.
+**Every one of the 10 level 3 solves we have took exactly 6 rounds**, which makes rounds-to-solve a low-noise
+measure for comparing checker variants. The solves came by **two different paths** (seat 153: runs 1, 2, 4
+share one; run 5 starts from a different kernel). Level 2 moves between 1/5 and 3/5 in
 every condition, baselines included: that is noise, not an effect.
 
 **Which ingredient did it (level 3, 5 runs each unless noted):**
@@ -92,7 +98,7 @@ Full taxonomy with examples: `report/01-baseline-and-taxonomy.md`.
 ## Conclusion
 
 TODO (final wording after the last runs). Draft: two of the three walls moved, and they moved by changing only
-what the checker tells the model, never what the answer is. Level 3 went from 0 of 15 to 4 of 5; level 4 from
+what the checker tells the model, never what the answer is. Level 3 went from 0 of 15 to 6 of 7 completed runs; level 4 from
 0.62 to 0.75 in every run. The third wall, level 1, did not move under any checker change, and the taxonomy
 says why: the model's algorithm is wrong before any rule is broken. The largest single lesson is that the
 existing feedback was not only vague but in two places misleading, and removing misleading advice mattered as
