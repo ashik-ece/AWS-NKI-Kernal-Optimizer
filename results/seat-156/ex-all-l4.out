@@ -1,0 +1,12 @@
+features ['ahead', 'example', 'internal', 'locate', 'names', 'origin', 'state', 'strict']
+endpoint http://localhost:8000/v1  model Qwen/Qwen3-8B
+
+################ run 1 of 5 ################
+
+=========== level 4: matmul, tiled ===========
+round 0: this round 0.62  best so far 0.62  (72.7s)
+  1 of 4 shapes passed. On K=256 M=256 N=1024: RUNS ON THE SIMULATOR, NOT ON THE CHIP: line 15, `sbuf_stationary = nl.ndarray((K, M), dtype=lhsT.dtype, buffer=nl.sbuf)`, allocates a tile in sbuf with 256 rows. A tile on the chip has at most 128 rows, and slicing it afterwards does not change that: the simulator checks the piece an instruction is given, not the tile it was cut from. Allocate the tile
+round 1: this round 0.30  best so far 0.62  (95.3s)
+  0 of 4 shapes passed. On K=128 M=128 N=512: line 29, `nisa.dma_copy(dst=sbuf_moving, src=rhs[k*512:(k+1)*512, :])`, raised AssertionError: Out-of-bound access for tensor `unnamed` on dimension 0: index range [0, 511] exceed dimension size of 128. You indexed up to 511 on dimension 0, which is only 128 long. Tile limits are a MAXIMUM, not a target. Derive every bound from the tensor's own shape -- 
+round 2: same failure again (0.30, best so far 0.62)
+  same failure 2x — adding a ledger of 2 failed attempts to break the repeat
