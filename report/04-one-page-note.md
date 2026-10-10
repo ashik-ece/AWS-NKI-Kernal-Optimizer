@@ -24,15 +24,19 @@ algorithm, which no checker message can reach.
 
 ## Results (solved / runs; every run's best score in brackets where it varies)
 
-| Level | Baseline (15 runs) | Checker `39b8e5a` | Checker TODO `16dcf94` | Prompt C (level 1) |
+The reported checker is the flag set `internal,origin`. It has produced identical feedback at every commit
+since `39b8e5a` (replayed on all 241 distinct failing kernels in our logs, zero differences; TODO: file in
+`results/`), so its runs are pooled across commits.
+
+| Level | Baseline (15 runs) | Checker `internal,origin` | TODO: `ahead` / `pieces` | Prompt C, short (level 1) |
 |---|---|---|---|---|
-| 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | n/a | TODO |
+| 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | n/a | 0/5, always 0.30 (failure type moved; TODO verify) |
 | 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | TODO | n/a |
-| 3 matmul, one tile | 0/15, always 0.30 | **4/5** [1, 1, 0.3, 1, 1] | TODO | n/a |
+| 3 matmul, one tile | 0/15, always 0.30 | **6/8** on two chips [1, 1, 0.3, 1, 1 / 1, 1, 0.3] | TODO | n/a |
 | 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** | TODO | n/a |
 
-Level 3's four solves came by **two different paths** (runs 1, 2, 4 share one; run 5 starts from a different
-kernel), and the same checker on a second chip (seat 157) solved 2 of 3. Level 2 moves between 1/5 and 3/5 in
+Level 3's solves came by **two different paths** (seat 153: runs 1, 2, 4 share one; run 5 starts from a
+different kernel), and the same flags on a second chip (seat 157) solved 2 of 3. Level 2 moves between 1/5 and 3/5 in
 every condition, baselines included: that is noise, not an effect.
 
 **Which ingredient did it (level 3, 5 runs each unless noted):**
@@ -75,8 +79,11 @@ Full taxonomy with examples: `report/01-baseline-and-taxonomy.md`.
   the feedback changes the trajectory. We credit a change only where the failure type also moved toward what
   the new message said (level 4: from "never tiles" to "tiles K, stalls on M"; level 3: each round's message
   names a tile and the model fixes that tile next).
-- **A later checker regressed.** `d761cd0` kept level 3 at 4/5 but returned level 4 to 0.62: its contraction
-  message stopped moving the model. We report `39b8e5a` unless TODO `16dcf94` beats it on both levels.
+- **Adding flags can regress.** `internal,origin` plus `pieces,shapes` kept level 3 at 4/5 but returned level 4
+  to 0.62: at the contraction step it named three limits at once and the model stopped moving. Adoption rule:
+  a flag is adopted only if it is better on the level it targets and no worse on any level it can change (found
+  by replay), and on level 3, where the checker already varies, "better" needs more than one run.
+- **Every flag set we tried is reported**, including the ones that lost, so the winner is not cherry-picked.
 - **Simulator only.** Every number is CPU simulation; no kernel ran on the device and no latency was measured.
 - **Prompt change C** (level 1) is reported separately. TODO: quote the hint verbatim. The version in `dev`
   names the `.ap()` view, the reduction axes and the `1/(p*p)` scale, i.e. the reference algorithm; a level-1
