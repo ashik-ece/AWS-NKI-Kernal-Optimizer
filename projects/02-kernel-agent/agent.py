@@ -65,7 +65,10 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #            simulator said, and the same sentence comes out of different mistakes: a result
 #            tile of the wrong shape is told "Do not reshape" by a kernel that never reshapes.
 #            With no rule to state the advice stays, since it is then all there is. Implies state.
-KNOWN_FEATURES = {"locate", "state", "facts"}
+#   origin   also follow the tile that broke the rule back to the line that gave it its shape,
+#            and say which of its dimensions is off and which way. The line that fails is often
+#            not the line that is wrong. Implies state.
+KNOWN_FEATURES = {"locate", "state", "facts", "origin"}
 FEATURES = set()
 
 # Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
@@ -164,7 +167,8 @@ def _grade(source, level):
         except Exception as e:
             raised = f"raised {type(e).__name__}: {e}"
             where = diagnose.where(e, path, source) if "locate" in FEATURES else ""
-            state, rules = (diagnose.state_and_rules(e, path, source, watch)
+            state, rules = (diagnose.state_and_rules(e, path, source, watch,
+                                                     origin="origin" in FEATURES)
                             if "state" in FEATURES else ("", 0))
             told = raised if "facts" in FEATURES and rules else enrich(raised)
             failures.append((nkibench.label(case, level), where + told + state))
@@ -648,7 +652,7 @@ def main():
     if asked - KNOWN_FEATURES:
         sys.exit(f"unknown --features {sorted(asked - KNOWN_FEATURES)}. Known: "
                  f"{sorted(KNOWN_FEATURES)}")
-    if "facts" in asked:
+    if asked & {"facts", "origin"}:
         asked.add("state")
     if "state" in asked:
         asked.add("locate")

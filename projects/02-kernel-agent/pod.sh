@@ -16,6 +16,7 @@
 #                                      ./pod.sh run state-l3 state 3     level 3 only
 #   ./pod.sh replay NAME             what the features would have told the model, for every failing
 #                                    kernel in NAME.jsonl. Calls no model; safe beside a run.
+#   ./pod.sh stop                    stop the run going on this seat. Its log so far is kept.
 #   ./pod.sh status [NAME]           is a run going, and the last lines of its output
 #   ./pod.sh pull NAME               copy NAME.jsonl and NAME.out into results/seat-$SEAT/
 #   ./pod.sh get REMOTE [LOCAL]      copy any one file from the pod's project folder
@@ -33,12 +34,14 @@ RESULTS=$(cd "$HERE/../.." && pwd)/results
 
 [ -n "${SEAT:-}" ] || { echo "Set your seat first:  export SEAT=<your number>" >&2; exit 1; }
 POD=seat-$SEAT
-in_pod() { kubectl exec -i "$POD" -- bash -c "cd $REMOTE && $1"; }
+# No -i: nothing here reads from the keyboard, and a kubectl that asks for the terminal is
+# suspended the moment the command is put in the background.
+in_pod() { kubectl exec "$POD" -- bash -c "cd $REMOTE && $1" < /dev/null; }
 
 case "${1:-}" in
   serve)
     # serve.sh starts the server detached, so it keeps running after this returns or drops.
-    kubectl exec -i "$POD" -- bash -c "cd /workspace && ./serve.sh"
+    kubectl exec "$POD" -- bash -c "cd /workspace && ./serve.sh" < /dev/null
     ;;
   push)
     # A run that is going keeps the code it started with, so pushing does not disturb it. But
@@ -80,6 +83,7 @@ case "${1:-}" in
     # A check that cannot fail is not a check. No scored run on a seat where this did not pass.
     if ! grep -q "Located lines: all are the planted ones." "$RESULTS/$POD/check_diagnose.out" \
        || ! grep -q "State on the line: every planted fact was reported." "$RESULTS/$POD/check_diagnose.out" \
+       || ! grep -q "Origin of the tile: every planted line was traced." "$RESULTS/$POD/check_diagnose.out" \
        || ! grep -q "SELFTEST PASSED" "$RESULTS/$POD/check_nkibench.out"; then
       echo "CHECK FAILED on $POD. Read $RESULTS/$POD/check_*.out before running anything here." >&2
       exit 1
@@ -114,6 +118,10 @@ case "${1:-}" in
     kubectl exec "$POD" -- cat "$REMOTE/replay_$NAME.out" > "$RESULTS/$POD/replay_$NAME.out"
     echo "saved to $RESULTS/$POD/replay_$NAME.out"
     ;;
+  stop)
+    # [p]ython, so the pattern cannot match the shell that is carrying this very command.
+    in_pod "pkill -f '[p]ython agent.py' && echo 'stopped the run on $POD' || echo 'no run was going on $POD'"
+    ;;
   status)
     in_pod "pgrep -fa 'python agent.py' | grep -v 'bash -c' || echo 'no run going'; \
             ls -la *.jsonl *.out 2>/dev/null | awk '{print \$5, \$9}'; \
@@ -139,6 +147,6 @@ case "${1:-}" in
     echo "$RESULTS/$POD/${3:-$(basename "$SRC")}"
     ;;
   *)
-    sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
     ;;
 esac

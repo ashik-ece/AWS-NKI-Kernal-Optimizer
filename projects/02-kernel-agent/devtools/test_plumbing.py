@@ -78,7 +78,7 @@ def main():
     for name, script in scenarios.items():
         base_result, base_prompts, base_stop = run(set(), script)
         print(f"  {name}")
-        for feats in ({"locate"}, {"locate", "state"}):
+        for feats in ({"locate"}, {"locate", "state"}, {"locate", "state", "origin"}):
             tag = "+".join(sorted(feats))
             result, prompts, stop = run(feats, script)
             ok = base_result == result and base_stop == stop and len(prompts) == len(base_prompts)

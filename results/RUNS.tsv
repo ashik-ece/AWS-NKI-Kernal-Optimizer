@@ -1,3 +1,9 @@
 started	seat	name	features	commit	args
 2026-10-10 12:13	154	baseline	none	0278dc1	--all --rounds 8 --samples 4 --context 8192 --repeat 5
 2026-10-10 13:09	153	state-l3	state	17638cf	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 13:23	157	state-all	state	413e595-dirty	--all --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 13:23	159	facts-all	facts	413e595-dirty	--all --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 13:23	151	facts-l3	facts	413e595-dirty	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 13:23	156	state-l4	state	413e595-dirty	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 13:23	158	baseline2	none	413e595-dirty	--all --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 13:23	150	locate-l3	locate	413e595-dirty	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
