@@ -11,7 +11,8 @@ was stuck because the checker's feedback described the simulator's crash instead
 in two places the feedback told it to do the wrong thing.** Changing only what the checker says solved level 3
 in 6 of 7 completed runs on two chips. On level 4 the model learned to tile the contraction, and the harness
 scores that 0.75 instead of 0.62, but 22 of the 23 kernels behind that 0.75 keep a tile taller than the chip's
-128 rows, which the harness does not check; with that rule enforced, level 4 stays at 0.62. Level 1 did not
+128 rows, which the harness does not check. Run with that rule enforced, level 4 scored 0.62 in 5 of 6 runs
+and 0.50 in one: no better than the baseline. Level 1 did not
 move, because it fails on the algorithm, which no checker message can reach.
 
 ## What we ran
@@ -38,10 +39,12 @@ errors are the real simulator's.
 | 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | not run | not run | 0/5, always 0.30, but **algorithm fixed**: `nc_matmul` 0/104 attempts (baseline 160/160), `nl.sum` 103/104 (0) |
 | 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | 3/5 (noise range) | 3/9 completed (noise range) | n/a |
 | 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | **10/10 on two chips; 8 in 4 rounds, 2 in 7** | 8/10 on two chips (run 1 failed on both); solves in 4 or 5 rounds | n/a |
-| 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** as scored; **0.62 with the 128-row rule enforced** (see caveats) | not run alone; with `pieces`: **0.62** (1 run, regressed) | 0.75 in 4 of 5 completed runs, 0.62 in 1 (as scored) | n/a |
+| 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** as scored; **with the 128-row rule enforced (`strict`): 0.62 in 5 of 6 runs, 0.50 in 1** | not run alone; with `pieces`: **0.62** (1 run, regressed) | 0.75 in 4 of 5 completed runs, 0.62 in 1 (as scored) | n/a |
 
 Other flag sets, all reported: `pieces` on level 4 at 8 rounds scored 0.75, 0.62 and 0.50, so it is not
-adopted; `pieces,ahead` solves level 3 3/3. TODO 16:10+: `strict` runs on level 4 (seats 154, 156, `c349ec2`).
+adopted; `pieces,ahead` solves level 3 3/3. TODO ~17:00: `names` (`internal,origin,ahead,names`, `2d87250`):
+level 3 on seats 150 and 158, level 2 on 157, level 4 on 153. `example` (`32f6055`, a worked tiling example
+in the repair prompt after a too-tall tile) is a prompt change, reported separately; not started yet.
 The fixed `ahead` replaces the checker only if level 3 holds, level 4 holds 0.75 and level 2 is no worse.
 **Verdict: not adopted.** Level 3 held (8/10 against 6/7) and level 2 is no worse, but level 4 dropped to 0.62
 in one run of five. The reported checker stays `internal,origin`. The first `ahead` (`16dcf94`) is the best
@@ -117,9 +120,10 @@ Full taxonomy with examples: `report/01-baseline-and-taxonomy.md` (section 2b fo
   checks the slice, not the tile, and the harness's rule scan only catches a literal number, so `(K, N)` gets
   through; Achyuthan confirmed on the real simulator that such a kernel runs. Replaying every log with the
   rule enforced (`--features strict`, `c349ec2`) turns 16 kernels from 0.75 into 0.62 and changes nothing on
-  levels 1 to 3. Level 3 is clean: all 9 distinct solved kernels keep every tile within 128 rows. So level 4
-  is 0.75 as the harness scores it and 0.62 under its own rule; what moved is the failure (the model now tiles
-  K), not a real score. `strict` is off in every reported run and leaves the `internal,origin` feedback
+  levels 1 to 3. Level 3 is clean: all 9 distinct solved kernels keep every tile within 128 rows. Measured
+  with the rule enforced (`internal,origin,strict`, `c349ec2`): seat 154, 8 rounds, 0.50, 0.62, 0.62; seat 156,
+  16 rounds, 0.62 three times, each stuck at round 4 on the same code. So level 4 is 0.75 as the harness
+  scores it and 0.62 under its own rule; what moved is the failure (the model now tiles K), not a real score. `strict` is off in every reported run and leaves the `internal,origin` feedback
   unchanged (replay, 303 kernels, 0 differences).
 - **Simulator only.** Every number is CPU simulation; no kernel ran on the device and no latency was measured.
 - **Prompt change C** (level 1) is reported separately, no checker flags. The short hint measured (seat 155,

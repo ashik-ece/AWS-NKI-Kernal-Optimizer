@@ -123,7 +123,17 @@ say it gives the model the reference algorithm.
 Fixed `ahead` not adopted: level 4 fell to 0.62 in 1 of 5. `pieces` not adopted (0.50 and 0.62 at 8 rounds).
 `2d87250` adds a `names` flag (explain an undefined name); off by default, and the replay against `11fbb86`
 on the stand-in shows 0 differences in 385 kernels for both `internal,origin` and `internal,origin,ahead`.
-Still to pull: `strict-l4` (154) and `strict-r16-l4` (156), on `c349ec2`.
+### 16:15 pull (`b665641`, PR #18): `strict` on level 4, and new runs started
+
+| Log | Flags, commit | Completed | Result |
+|---|---|---|---|
+| seat-154 `strict-l4` | internal,origin,strict, `c349ec2` | 3 of 4 started | 0.50, 0.62, 0.62 |
+| seat-156 `strict-r16-l4` | internal,origin,strict, 16 rounds | 3 of 4 started | 0.62, 0.62, 0.62 (each stops at round 4, same code) |
+
+With the 128-row rule enforced, level 4 is not above the baseline's 0.62. Started 16:14 on `2d87250` with
+`internal,origin,ahead,names`: `n-l3` (150, 158), `n-l2` (157), `n-l4` (153). `32f6055` adds `example`
+(gated: off unless asked for; a prompt change). Replay at `b665641` vs `11fbb86`: `internal,origin`
+differs on 0 of 402 kernels.
 
 ### Prompt C, short hint (seat 155, `Perumal/Level1-Prompt` at `c4e5eb2`)
 
