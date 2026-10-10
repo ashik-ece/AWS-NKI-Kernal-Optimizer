@@ -106,6 +106,15 @@ from now on does, including checker runs. Such runs must be labelled "checker + 
 result from them cannot be credited to the checker. If it stays, the note must quote the hint verbatim and
 say it gives the model the reference algorithm.
 
+### Prompt C, short hint (seat 155, `Perumal/Level1-Prompt` at `c4e5eb2`)
+
+Code `e29cc01` (= `0278dc1` + the short hint), `--features '' --level 1`, frozen settings. Logs:
+`projects/02-kernel-agent/results/seat-155/level1-route-first-prompt-repeat5{.log,-attempts.jsonl}` on that
+branch. The jsonl holds 6 sessions; only the last (104 attempts, reps 0-4, round-0 prompt 2,484 chars vs
+2,323 for seat-154's baseline on `0278dc1`) is the measured repeat. Result 0/5, always 0.30.
+Algorithm moved: `nc_matmul` 0/104, `nl.sum` 103/104, `1/p^2` scale 79/104. Failures: fixed `(128, 128)` tile
+80, missing `pool_size` argument 24. Not in `RUNS.tsv` (run outside `pod.sh run`).
+
 ### 15:33 pull (`e780bf9`): `ahead` and `pieces` on `16dcf94`, partial
 
 | Log | Flags | Completed runs | Result |

@@ -33,7 +33,7 @@ errors are the real simulator's.
 
 | Level | Baseline (15 runs) | Checker `internal,origin` | + `ahead`, first version (`16dcf94`) | + `ahead`, fixed (`11fbb86`) | Prompt C, short (level 1) |
 |---|---|---|---|---|---|
-| 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | not run | not run | 0/5, always 0.30 (failure type moved; TODO verify) |
+| 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | not run | not run | 0/5, always 0.30, but **algorithm fixed**: `nc_matmul` 0/104 attempts (baseline 160/160), `nl.sum` 103/104 (0) |
 | 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | 3/5 (noise range) | TODO 16:10 (`a2-l2`, seats 153, 157) | n/a |
 | 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | **8/8 so far on two chips, 7 in 4 rounds** (TODO: out of 10 at 16:10) | TODO 16:10 (`a2-l3`, seats 150, 158) | n/a |
 | 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** | with `pieces`: **0.62** (1 run, regressed) | TODO 16:10 (`a2-l4`, seats 151, 159): **decides adoption** | n/a |
@@ -106,9 +106,17 @@ Full taxonomy with examples: `report/01-baseline-and-taxonomy.md` (section 2b fo
   by replay), and on level 3, where the checker already varies, "better" needs more than one run.
 - **Every flag set we tried is reported**, including the ones that lost, so the winner is not cherry-picked.
 - **Simulator only.** Every number is CPU simulation; no kernel ran on the device and no latency was measured.
-- **Prompt change C** (level 1) is reported separately. TODO: quote the hint verbatim. The version in `dev`
-  names the `.ap()` view, the reduction axes and the `1/(p*p)` scale, i.e. the reference algorithm; a level-1
-  solve with it would show the model can follow a recipe, not that it derived one.
+- **Prompt change C** (level 1) is reported separately, no checker flags. The short hint measured (seat 155,
+  `e29cc01` on `0278dc1`), verbatim: "Average pooling is a per-window sum followed by a scale; it needs no
+  matrix multiplication. Use a strided view of pooling windows and nl.sum for the reduction." It changed the
+  algorithm, not the score: `nc_matmul` in 0 of 104 attempts (baseline 160/160), `nl.sum` in 103, a `1/p^2`
+  scale in 79 (baseline 0, always 0.5). It now fails on tile shapes (a fixed `(128, 128)` tile, 80 attempts:
+  type 1a again) and on leaving out the `pool_size` argument (24). Round-0 prompt 2,484 characters against
+  2,323 for the baseline on the same commit, so the hint was in every run. The log file also holds five
+  earlier single-run tries (88 attempts, some with a different hint); only the final 104-attempt repeat is
+  counted. The detailed version in `dev` (`ce61bac`) names the `.ap()` view, the reduction axes and the
+  `1/(p*p)` scale, i.e. the reference algorithm; a solve with it would show the model can follow a recipe,
+  not that it derived one. TODO: its result (seat 155, running).
 
 ## Conclusion
 
