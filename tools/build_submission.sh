@@ -27,6 +27,9 @@ PUSH=${2:-}
 UPSTREAM=yahavb/trainium-agent-labs
 BRANCH=${BRANCH:-kernel-agent-checker}
 NOTE=${NOTE:-}
+# Which branch of the team repo the code and results come from. dev by default; SRC_REF=achyu-checker
+# builds straight from that branch, skipping the merge into dev.
+SRC_REF=${SRC_REF:-dev}
 LEVEL3=${LEVEL3:?set LEVEL3 to the final level 3 result from the note, e.g. LEVEL3="9 of 12"}
 TEAM_REPO=$(cd "$(dirname "$0")/.." && pwd)
 PROJ=projects/02-kernel-agent
@@ -36,13 +39,14 @@ COAUTHORS=("Ashik M John <138590481+ashik-ece@users.noreply.github.com>"
            "Perumal Marimuthu <102660995+Perumal100@users.noreply.github.com>")
 TEAMMATES=(ashik-ece Perumal100)
 
-echo "== fetching the team repo's dev and john-manage"
-git -C "$TEAM_REPO" fetch -q origin dev john-manage
+echo "== fetching the team repo's $SRC_REF and john-manage"
+git -C "$TEAM_REPO" fetch -q origin "$SRC_REF" john-manage
 
 WORK=$(mktemp -d)
 SRC=$WORK/src
 mkdir -p "$SRC"
-git -C "$TEAM_REPO" archive origin/dev | tar -x -C "$SRC"
+git -C "$TEAM_REPO" archive "origin/$SRC_REF" | tar -x -C "$SRC"
+echo "   code and results from origin/$SRC_REF ($(git -C "$TEAM_REPO" log -1 --format=%h "origin/$SRC_REF"))"
 
 echo "== fresh clone of $UPSTREAM"
 git clone -q "https://github.com/$UPSTREAM.git" "$WORK/up"
