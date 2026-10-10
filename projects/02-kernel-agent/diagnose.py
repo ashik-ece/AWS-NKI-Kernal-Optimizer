@@ -28,6 +28,8 @@ as the shape to type in. Nothing here can reject a kernel: it speaks only after 
 has already raised.
 
     python diagnose.py --selftest      # plant known bugs in the reference kernels, check both
+    python diagnose.py --explain FILE --level N    # the diagnosis for your own kernel, as the
+                                                   # model would get it. For people writing NKI.
     python diagnose.py --replay LOG    # what the model WOULD have been told, for every failing
                                        # kernel in an attempt log. Calls no model.
 
@@ -1272,9 +1274,27 @@ def main():
     ap.add_argument("--replay", metavar="LOG.jsonl")
     ap.add_argument("--level", type=int)
     ap.add_argument("--features", default="locate,state", help="for --replay")
+    ap.add_argument("--explain", metavar="KERNEL.py",
+                    help="grade one kernel file and print what the checker says about it")
     a = ap.parse_args()
     if a.selftest:
         sys.exit(selftest())
+    if a.explain:
+        import agent
+        level = a.level or 3
+        flags = {f for f in (a.features if a.features != "locate,state" else
+                             "internal,origin,ahead,names,layout,strict").split(",") if f}
+        for f in list(flags):
+            if f in ("facts", "origin", "internal", "strict", "names", "pieces", "ahead", "layout"):
+                flags |= {"state", "locate"}
+            if f in ("pieces", "ahead", "layout"):
+                flags.add("origin")
+        agent.FEATURES.update(flags)
+        agent.CANDIDATE_PATH = "/tmp/_explain_level{level}.py"
+        reward, parts, told, _ = agent.grade(open(a.explain).read(), level)
+        print(f"level {level}, flags {sorted(flags)}\nscore {reward:.2f}  {parts}\n")
+        print(told)
+        sys.exit(0 if reward >= 1.0 - 1e-9 else 1)
     if a.replay:
         sys.exit(replay(a.replay, a.level, {f for f in a.features.split(",") if f}))
     ap.print_help()

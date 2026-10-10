@@ -45,3 +45,9 @@ started	seat	name	features	commit	args
 2026-10-10 16:21	154	ex-all-l4	internal,origin,ahead,names,strict,example	32f6055	--level 4 --rounds 16 --samples 4 --context 8192 --repeat 5
 2026-10-10 16:21	156	ex-all-l4	internal,origin,ahead,names,strict,example	32f6055	--level 4 --rounds 16 --samples 4 --context 8192 --repeat 5
 2026-10-10 16:21	159	ex-min-l4	internal,origin,strict,example	32f6055	--level 4 --rounds 16 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:43	150	final-l3	internal,origin,ahead,names,layout,strict	dae55d8	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:43	153	checker-l8	internal,origin	dae55d8	--level 8 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:43	158	final-l3	internal,origin,ahead,names,layout,strict	dae55d8	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:43	157	base-l8	none	dae55d8	--level 8 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:48	150	checker-l3c	internal,origin	dae55d8	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:48	158	checker-l3c	internal,origin	dae55d8	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
