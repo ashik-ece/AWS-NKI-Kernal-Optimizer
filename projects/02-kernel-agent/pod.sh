@@ -63,12 +63,26 @@ case "${1:-}" in
       echo "  ./pod.sh get nkibench.py nkibench.pod.py" >&2
       [ "${FORCE:-}" = 1 ] || exit 1
     fi
-    # tar over exec rather than kubectl cp, so logs and caches in either place are left alone.
     # devtools/ stays on the laptop: its stand-in simulator must never be importable in the pod.
-    COPYFILE_DISABLE=1 tar --no-xattrs -cf - -C "$HERE" \
-        --exclude '__pycache__' --exclude './devtools' --exclude '*.jsonl' --exclude '*.out' \
-        --exclude '*.log' . \
-      | kubectl exec -i "$POD" -- tar -xf - -C "$REMOTE" --no-same-owner
+    if PREFIX=$(git -C "$HERE" rev-parse --show-prefix 2>/dev/null) && [ -n "$PREFIX" ]; then
+      # Only COMMITTED code goes to a seat. A run is then always some commit, never an edit that
+      # happened to be half made when the push ran -- which is how a measured run stops being
+      # reproducible without anyone noticing.
+      REV=$(git -C "$HERE" rev-parse --short HEAD)
+      if ! git -C "$HERE" diff --quiet HEAD -- . ; then
+        echo "NOTE: this folder has uncommitted changes. They are NOT pushed: the seat gets commit $REV." >&2
+      fi
+      git -C "$(git -C "$HERE" rev-parse --show-toplevel)" archive "HEAD:${PREFIX%/}" -- . ':!devtools' \
+        | kubectl exec -i "$POD" -- tar -xf - -C "$REMOTE" --no-same-owner
+    else
+      # Not a git checkout (a copy of the folder): send the files as they are.
+      REV=copy
+      COPYFILE_DISABLE=1 tar --no-xattrs -cf - -C "$HERE" \
+          --exclude '__pycache__' --exclude './devtools' --exclude '*.jsonl' --exclude '*.out' \
+          --exclude '*.log' . \
+        | kubectl exec -i "$POD" -- tar -xf - -C "$REMOTE" --no-same-owner
+    fi
+    in_pod "echo $REV > .pushed_rev"
     in_pod "python -c 'import agent, diagnose; print(\"pushed to $POD; agent.py knows features:\", sorted(agent.KNOWN_FEATURES))'"
     ;;
   check)
@@ -104,9 +118,8 @@ case "${1:-}" in
             nohup python agent.py $RUN_ARGS --features '$FEATURES' --log $NAME.jsonl > $NAME.out 2>&1 < /dev/null & \
             sleep 2; echo \"started $NAME on $POD: agent.py $RUN_ARGS --features '$FEATURES'\"; head -3 $NAME.out"
     # The run sheet: which code, on which seat, with which settings. Written by the tool so it
-    # cannot be forgotten. A commit marked -dirty means the code that ran is not in git.
-    REV=$(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo "?")
-    git -C "$HERE" diff --quiet HEAD -- . 2>/dev/null || REV="$REV-dirty"
+    # cannot be forgotten. The commit is the one that was pushed to this seat.
+    REV=$(kubectl exec "$POD" -- cat "$REMOTE/.pushed_rev" 2>/dev/null || echo "?")
     mkdir -p "$RESULTS"
     [ -e "$RESULTS/RUNS.tsv" ] || printf 'started\tseat\tname\tfeatures\tcommit\targs\n' > "$RESULTS/RUNS.tsv"
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M')" "$SEAT" "$NAME" "${FEATURES:-none}" "$REV" "$RUN_ARGS" >> "$RESULTS/RUNS.tsv"

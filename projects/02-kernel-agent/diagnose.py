@@ -356,6 +356,27 @@ def _allocation(source, name, before, inside):
     return (best, statement_at(source, best, limit=140)) if best else None
 
 
+def _earlier_use(source, name, before, inside):
+    """(line, statement) of the first instruction above line `before` that used tile `name` as an
+    operand. Execution got past it, so the shape the tile has is the shape that line needed."""
+    best = None
+    try:
+        for node in ast.walk(ast.parse(source)):
+            if not (isinstance(node, ast.Call) and getattr(node.func, "attr", "") in OPERANDS
+                    and node.func.attr != "ndarray" and inside[0] <= node.lineno < before):
+                continue
+            for arg in list(node.args) + [k.value for k in node.keywords]:
+                root = arg
+                while isinstance(root, ast.Subscript):
+                    root = root.value
+                if isinstance(root, ast.Name) and root.id == name \
+                        and (best is None or node.lineno < best):
+                    best = node.lineno
+    except SyntaxError:
+        return None
+    return (best, statement_at(source, best, limit=140)) if best else None
+
+
 def _origin(func, ops, limits, source, lineno, inside, params):
     """Sentences naming the tile that has to change and the line that gave it its shape.
 
@@ -409,7 +430,24 @@ def _origin(func, ops, limits, source, lineno, inside, params):
             continue
         done.add(root)
         made = _allocation(source, root, lineno, inside) if root not in params else None
-        if made:
+        used = _earlier_use(source, root, lineno, inside) if func != "nc_matmul" else None
+        if used:
+            # Measured on level 3: told to resize a tile that an earlier copy had filled, the
+            # model resized it, broke that copy, was told to resize it back, and went round.
+            # A tile an earlier instruction already used has the shape THAT instruction needed.
+            # It is being used for two things, and the second needs a tile of its own.
+            out.append(f"`{root}` is the wrong size here: {what}. But do not resize it: line "
+                       f"{used[0]}, `{used[1]}`, already ran with the shape it has, so it is "
+                       f"being used for two different things. Leave `{root}` as it is and "
+                       f"allocate a separate tile for this line, sized to match the other side.")
+        elif made and "too many: at most" in what:
+            # No number on the allocation line fixes a tile that is too tall. Saying "change
+            # that line" would send the model to try one.
+            out.append(f"`{root}` is too tall: {what}. It got its shape on line {made[0]}, "
+                       f"`{made[1]}`. No single tile can have that many rows, so a different "
+                       f"number there will not do: the data has to be handled in pieces of at "
+                       f"most that many rows, in a loop.")
+        elif made:
             out.append(f"The tile to change is `{root}`: {what}. It got its shape on line "
                        f"{made[0]}, `{made[1]}`, so that is the line to change, not this one.")
         else:
@@ -539,7 +577,8 @@ PLANTS = [
              "  nisa.dma_copy(dst=whole, src=lhsT)\n",
          expect="nisa.dma_copy(dst=whole, src=lhsT)",
          facts=["`whole` is (256, 256)", "`lhsT` is (256, 256)"],
-         origin=["The tile to change is `whole`", "too many", "`whole = nl.ndarray(lhsT.shape,"]),
+         origin=["`whole` is too tall", "too many", "`whole = nl.ndarray(lhsT.shape,",
+                 "in pieces"]),
     dict(name="tile too small, call split over lines, inside three loops", level=4, case=1,
          old="rhs_tile = nl.ndarray((TILE_K, TILE_N),",
          new="rhs_tile = nl.ndarray((TILE_K, TILE_N // 2),",
@@ -548,6 +587,13 @@ PLANTS = [
                 "dst holds 32768 elements and src holds 65536"],
          origin=["The tile to change is `rhs_tile`", "too small",
                  "`rhs_tile = nl.ndarray((TILE_K, TILE_N // 2),"]),
+    dict(name="one tile used for two things", level=3, case=0,
+         old="nisa.tensor_copy(dst=result_sbuf, src=result_psum)",
+         new="nisa.tensor_copy(dst=rhs_tile, src=result_psum)",
+         expect="nisa.tensor_copy(dst=rhs_tile, src=result_psum)",
+         facts=["`rhs_tile` is (128, 512)", "`result_psum` is (64, 512)"],
+         origin=["do not resize it", "`nisa.dma_copy(dst=rhs_tile, src=rhs)`",
+                 "allocate a separate tile"]),
     # Not pass/fail. This asks the simulator a question: what does a result tile of the wrong
     # shape look like from outside? If the answer is a reshape error, then a kernel with no
     # reshape in it can produce one, and the line is the only thing that says where.
@@ -665,7 +711,8 @@ def selftest():
         traced = shown(state_and_rules(err, path, source, w, origin=True)[0])
         lost = [f for f in p.get("origin", []) if f not in traced]
         if p.get("origin"):
-            print(f"      origin  {traced.split('The tile to change', 1)[-1].strip()[:230] if 'The tile to change' in traced else 'NOTHING TRACED'}")
+            tail = traced.split("elements.", 1)[-1].strip() if "elements." in traced else traced
+            print(f"      origin  {tail[-330:] if tail else 'NOTHING TRACED'}")
             print(f"      origin names the planted tile and line -> {'ok' if not lost else 'FAIL'}"
                   + (f"  missing: {lost}" if lost else ""))
             origin_rc |= 0 if not lost else 1

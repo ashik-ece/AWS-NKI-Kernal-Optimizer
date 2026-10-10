@@ -68,7 +68,14 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #   origin   also follow the tile that broke the rule back to the line that gave it its shape,
 #            and say which of its dimensions is off and which way. The line that fails is often
 #            not the line that is wrong. Implies state.
-KNOWN_FEATURES = {"locate", "state", "facts", "origin"}
+#   internal like facts, but only for errors that come from INSIDE the simulator (a numpy
+#            ValueError about reshaping or broadcasting). Those describe the simulator, and
+#            advice keyed on them misses: "Do not reshape" to a kernel with no reshape. The
+#            simulator's own checks (AssertionError: partition dimension 256 exceeds 128) do
+#            describe the kernel, and the advice for them carries the how-to, so it stays.
+#            Measured: dropping it there left level 4 at 0.62; keeping it reached 0.75.
+#            Implies state.
+KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal"}
 FEATURES = set()
 
 # Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
@@ -170,7 +177,9 @@ def _grade(source, level):
             state, rules = (diagnose.state_and_rules(e, path, source, watch,
                                                      origin="origin" in FEATURES)
                             if "state" in FEATURES else ("", 0))
-            told = raised if "facts" in FEATURES and rules else enrich(raised)
+            drop = rules and ("facts" in FEATURES
+                              or ("internal" in FEATURES and not isinstance(e, AssertionError)))
+            told = raised if drop else enrich(raised)
             failures.append((nkibench.label(case, level), where + told + state))
             continue
         parts["runs"] = True
@@ -652,7 +661,7 @@ def main():
     if asked - KNOWN_FEATURES:
         sys.exit(f"unknown --features {sorted(asked - KNOWN_FEATURES)}. Known: "
                  f"{sorted(KNOWN_FEATURES)}")
-    if asked & {"facts", "origin"}:
+    if asked & {"facts", "origin", "internal"}:
         asked.add("state")
     if "state" in asked:
         asked.add("locate")

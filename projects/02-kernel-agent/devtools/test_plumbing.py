@@ -79,6 +79,7 @@ def main():
         base_result, base_prompts, base_stop = run(set(), script)
         print(f"  {name}")
         for feats in ({"locate"}, {"locate", "state"}, {"locate", "state", "origin"}):
+            # (internal and facts remove text, so they are checked separately below)
             tag = "+".join(sorted(feats))
             result, prompts, stop = run(feats, script)
             ok = base_result == result and base_stop == stop and len(prompts) == len(base_prompts)
@@ -112,6 +113,17 @@ def main():
     ok = "Do not reshape" not in feedback and "At that line: " in feedback and "raised " in feedback
     print(f"  grade() with facts: the state replaces the canned advice -> {'ok' if ok else 'FAIL'}")
     print(f"      {feedback}")
+    rc |= 0 if ok else 1
+
+    # internal: the advice goes only when the error came from inside the simulator.
+    agent.FEATURES.update({"locate", "state", "internal"})
+    _, _, numpy_error, _ = agent.grade(planted("result tile of the wrong shape"), 3)
+    _, _, own_check, _ = agent.grade(planted("1-D tile"), 3)
+    agent.FEATURES.clear()
+    ok = ("Do not reshape" not in numpy_error and "At that line" in numpy_error
+          and "A 1-D tile is not allowed" in own_check and "At that line" in own_check)
+    print(f"  grade() with internal: advice dropped for a numpy error, kept for the simulator's "
+          f"own check -> {'ok' if ok else 'FAIL'}")
     rc |= 0 if ok else 1
 
     # An invented function name breaks no shape rule, so the advice (the real names) must stay.

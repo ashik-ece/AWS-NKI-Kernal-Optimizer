@@ -4,11 +4,11 @@ import numpy as np
 
 def dma_copy(dst=None, src=None, **kw):
     if dst.arr.size != src.arr.size:
-        raise ValueError(f"dma_copy requires src and dst to have the same number of elements, "
+        raise AssertionError(f"dma_copy requires src and dst to have the same number of elements, "
                          f"got src={src.arr.size}, dst={dst.arr.size}")
     for name, t in (("dst", dst), ("src", src)):
         if getattr(t.buffer, "name", "") == "sbuf" and t.shape[0] > 128:
-            raise ValueError(f"dma_copy {name} partition dimension {t.shape[0]} exceeds maximum 128")
+            raise AssertionError(f"dma_copy {name} partition dimension {t.shape[0]} exceeds maximum 128")
     dst.arr[...] = src.arr.reshape(dst.arr.shape)
 
 
