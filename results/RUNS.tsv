@@ -13,3 +13,4 @@ started	seat	name	features	commit	args
 2026-10-10 13:43	153	checker-l3	internal,origin	39b8e5a	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
 2026-10-10 13:43	159	checker-l4	internal,origin	39b8e5a	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
 2026-10-10 13:44	150	checker-l1	internal,origin	39b8e5a	--level 1 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 13:45	151	checker-l2	internal,origin	39b8e5a	--level 2 --rounds 8 --samples 4 --context 8192 --repeat 5
