@@ -90,7 +90,7 @@ are `multiply`, and the agent's hint says nothing similar exists; it is `nl.mult
 - **The model is near-deterministic:** five baseline runs gave identical kernels. So we credit a change only
   when the failure type also moves toward what the new message said.
 - **Every flag set is reported**, including the losers: `pieces`, `pieces,shapes`, fixed `ahead`, `names`
-  [names: TBD], and `example` (a worked tiling example in the repair prompt, 16 rounds, with the 128-row rule
+  (level 3: 2 chip-valid solves in 8 runs, worse than the checker; level 4: 0.62 with the rule enforced), and `example` (a worked tiling example in the repair prompt, 16 rounds, with the 128-row rule
   enforced): 2 of 14 runs reached a chip-valid 0.75 on level 4 (K tiled correctly, then failing at M = 256).
   A flag is adopted only if it is better where it aims and no worse elsewhere.
 - **Simulator only.** It also accepts a result returned from PSUM; we checked every solve, and all checker
