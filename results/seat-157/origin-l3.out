@@ -33,3 +33,54 @@ round 0: this round 0.30  best so far 0.30  (56.8s)
   0 of 1 shapes passed. On K=128 M=64 N=512: line 14, `nisa.dma_copy(dst=sbuf_tile, src=lhsT)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=8192, dst=65536 At that line: `sbuf_tile` is (128, 512) in sbuf; `lhsT` is (128, 64) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or
 round 1: this round 0.30  best so far 0.30  (56.3s)
   0 of 1 shapes passed. On K=128 M=64 N=512: line 16, `nisa.dma_copy(dst=sbuf_tile[0:128, 0:64], src=rhs)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=65536, dst=8192 At that line: `sbuf_tile` is (128, 64) in sbuf; `rhs` is (128, 512) in HBM (an input); dst `sbuf_tile[0:128, 0:64]` is (128, 64) in sbuf. The two sides of a dma_copy must hold the 
+round 2: this round 0.30  best so far 0.30  (56.8s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 14, `nisa.dma_copy(dst=sbuf_tile, src=lhsT)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=8192, dst=65536 At that line: `sbuf_tile` is (128, 512) in sbuf; `lhsT` is (128, 64) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or
+round 3: this round 0.30  best so far 0.30  (56.3s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 16, `nisa.dma_copy(dst=sbuf_tile[0:128, 0:64], src=rhs)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=65536, dst=8192 At that line: `sbuf_tile` is (128, 64) in sbuf; `rhs` is (128, 512) in HBM (an input); dst `sbuf_tile[0:128, 0:64]` is (128, 64) in sbuf. The two sides of a dma_copy must hold the 
+round 4: this round 0.30  best so far 0.30  (56.8s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 14, `nisa.dma_copy(dst=sbuf_tile, src=lhsT)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=8192, dst=65536 At that line: `sbuf_tile` is (128, 512) in sbuf; `lhsT` is (128, 64) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or
+round 5: this round 0.30  best so far 0.30  (56.3s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 16, `nisa.dma_copy(dst=sbuf_tile[0:128, 0:64], src=rhs)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=65536, dst=8192 At that line: `sbuf_tile` is (128, 64) in sbuf; `rhs` is (128, 512) in HBM (an input); dst `sbuf_tile[0:128, 0:64]` is (128, 64) in sbuf. The two sides of a dma_copy must hold the 
+round 6: this round 0.30  best so far 0.30  (56.8s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 14, `nisa.dma_copy(dst=sbuf_tile, src=lhsT)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=8192, dst=65536 At that line: `sbuf_tile` is (128, 512) in sbuf; `lhsT` is (128, 64) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or
+  STOPPING this level: this failure for the 4th time, alternating with 1 other(s). The agent is cycling between a fixed set of mistakes rather than converging, so more rounds will not help. Failures seen:
+    4x  0 of 1 shapes passed. On K=128 M=64 N=512: raised AssertionError: dma_copy requires src and dst to have the sa
+    3x  0 of 1 shapes passed. On K=128 M=64 N=512: raised AssertionError: dma_copy requires src and dst to have the sa
+
+=========== summary ===========
+  level 3  reward 0.30 after 7 round(s)
+  solved 0/1
+
+################ run 3 of 5 ################
+
+=========== level 3: matmul, single tile ===========
+round 0: this round 0.30  best so far 0.30  (51.4s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 14, `nisa.dma_copy(dst=sbuf_in, src=lhsT)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=8192, dst=65536 At that line: `sbuf_in` is (128, 512) in sbuf; `lhsT` is (128, 64) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or bro
+round 1: this round 0.30  best so far 0.30  (46.9s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 19, `nisa.nc_matmul(dst=sbuf_out, stationary=sbuf_in, moving=sbuf_out)`, raised AssertionError: dst must be in ['psum'], got sbuf At that line: `sbuf_out` is (128, 512) in sbuf; `sbuf_in` is (128, 64) in sbuf. The result of nc_matmul has stationary's second dimension as its first and moving's second dimension as its second, and dst must be exactly th
+round 2: this round 0.30  best so far 0.30  (46.8s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 16, `nisa.dma_copy(dst=sbuf_out, src=rhs)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=65536, dst=32768 At that line: `sbuf_out` is (64, 512) in sbuf; `rhs` is (128, 512) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or br
+round 3: this round 0.30  best so far 0.30  (47.0s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 19, `nisa.nc_matmul(dst=sbuf_out, stationary=sbuf_in, moving=sbuf_out)`, raised AssertionError: dst must be in ['psum'], got sbuf At that line: `sbuf_out` is (128, 512) in sbuf; `sbuf_in` is (128, 64) in sbuf. The result of nc_matmul has stationary's second dimension as its first and moving's second dimension as its second, and dst must be exactly th
+round 4: this round 0.30  best so far 0.30  (46.8s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 16, `nisa.dma_copy(dst=sbuf_out, src=rhs)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=65536, dst=32768 At that line: `sbuf_out` is (64, 512) in sbuf; `rhs` is (128, 512) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or br
+round 5: this round 0.30  best so far 0.30  (47.0s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 19, `nisa.nc_matmul(dst=sbuf_out, stationary=sbuf_in, moving=sbuf_out)`, raised AssertionError: dst must be in ['psum'], got sbuf At that line: `sbuf_out` is (128, 512) in sbuf; `sbuf_in` is (128, 64) in sbuf. The result of nc_matmul has stationary's second dimension as its first and moving's second dimension as its second, and dst must be exactly th
+round 6: this round 0.30  best so far 0.30  (46.8s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 16, `nisa.dma_copy(dst=sbuf_out, src=rhs)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=65536, dst=32768 At that line: `sbuf_out` is (64, 512) in sbuf; `rhs` is (128, 512) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or br
+round 7: this round 0.30  best so far 0.30  (47.0s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 19, `nisa.nc_matmul(dst=sbuf_out, stationary=sbuf_in, moving=sbuf_out)`, raised AssertionError: dst must be in ['psum'], got sbuf At that line: `sbuf_out` is (128, 512) in sbuf; `sbuf_in` is (128, 64) in sbuf. The result of nc_matmul has stationary's second dimension as its first and moving's second dimension as its second, and dst must be exactly th
+  STOPPING this level: this failure for the 4th time, alternating with 2 other(s). The agent is cycling between a fixed set of mistakes rather than converging, so more rounds will not help. Failures seen:
+    4x  0 of 1 shapes passed. On K=128 M=64 N=512: raised AssertionError: dst must be in ['psum'], got sbuf
+    3x  0 of 1 shapes passed. On K=128 M=64 N=512: raised AssertionError: dma_copy requires src and dst to have the sa
+    1x  0 of 1 shapes passed. On K=128 M=64 N=512: raised AssertionError: dma_copy requires src and dst to have the sa
+
+=========== summary ===========
+  level 3  reward 0.30 after 8 round(s)
+  solved 0/1
+
+################ run 4 of 5 ################
+
+=========== level 3: matmul, single tile ===========
+round 0: this round 0.30  best so far 0.30  (55.2s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 16, `psum = nl.ndarray(shape=out.shape, dtype=out.dtype, buffer=nl.psum)`, raised AssertionError: SBUF and PSUM tensors must have at least 2 dimensions (partition-dim and free-dim) At that line: `out` is (64,) in HBM. A tile on the chip needs at least 2 dimensions, the partition dimension first: this shape has 1.
