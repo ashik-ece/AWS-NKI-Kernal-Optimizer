@@ -31,12 +31,15 @@ gives identical feedback (`results/replay-internal-origin-39b8e5a-vs-16dcf94.txt
 laptop stand-in simulator, so it shows the code takes the same path through the same errors, not that those
 errors are the real simulator's.
 
-| Level | Baseline (15 runs) | Checker `internal,origin` | + `ahead` / + `pieces` (`16dcf94`, partial at 15:33) | Prompt C, short (level 1) |
-|---|---|---|---|---|
-| 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | not run | 0/5, always 0.30 (failure type moved; TODO verify) |
-| 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | `ahead`: 3/5 (noise range) | n/a |
-| 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | `ahead`: **8/8 completed runs on two chips, 7 of them in 4 rounds**; `pieces,ahead`: 3/3 | n/a |
-| 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** | `pieces`: 0.75 in 3/3 completed runs; `pieces,ahead`: **0.62** (1 run, regressed) | n/a |
+| Level | Baseline (15 runs) | Checker `internal,origin` | + `ahead`, first version (`16dcf94`) | + `ahead`, fixed (`11fbb86`) | Prompt C, short (level 1) |
+|---|---|---|---|---|---|
+| 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | not run | not run | 0/5, always 0.30 (failure type moved; TODO verify) |
+| 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | 3/5 (noise range) | TODO 16:10 (`a2-l2`, seats 153, 157) | n/a |
+| 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | **8/8 so far on two chips, 7 in 4 rounds** (TODO: out of 10 at 16:10) | TODO 16:10 (`a2-l3`, seats 150, 158) | n/a |
+| 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** | with `pieces`: **0.62** (1 run, regressed) | TODO 16:10 (`a2-l4`, seats 151, 159): **decides adoption** | n/a |
+
+Other flag sets, all reported: `pieces` alone holds level 4 at 0.75 (3/3); `pieces,ahead` solves level 3 3/3.
+The fixed `ahead` replaces the checker only if level 3 holds, level 4 holds 0.75 and level 2 is no worse.
 
 An eighth level 3 run (seat 157, run 3) stopped after round 3 with no error and no summary line; every solving
 run was also still at 0.30 at round 3, so it says nothing either way. Counted as unsolved, the figure is 6 of 8.
