@@ -377,7 +377,15 @@ def _earlier_use(source, name, before, inside):
     return (best, statement_at(source, best, limit=140)) if best else None
 
 
-def _origin(func, ops, limits, source, lineno, inside, params):
+def _in_loop(source, lineno):
+    try:
+        return any(isinstance(n, (ast.For, ast.While)) and n.lineno < lineno <= (n.end_lineno or 0)
+                   for n in ast.walk(ast.parse(source)))
+    except SyntaxError:
+        return False
+
+
+def _origin(func, ops, limits, source, lineno, inside, params, pieces=False):
     """Sentences naming the tile that has to change and the line that gave it its shape.
 
     Measured on level 3, two runs out of two: told the failing line, the shapes on it and the
@@ -387,17 +395,21 @@ def _origin(func, ops, limits, source, lineno, inside, params):
     which of its dimensions is off, in which direction, and which operand it has to match. That
     is which thing is wrong and which way -- not the number to type.
     """
-    pmax = limits[0]
+    pmax, smax, mmax = limits
     shape = {k: v[1] for k, v in ops.items()}
     text = {k: v[0] for k, v in ops.items()}
     blame = []                                   # (role, what is wrong with it)
+    direct = []                                  # sentences that need no tracing back
 
     def size(s):
         return math.prod(s)
 
     if func == "nc_matmul" and shape.get("stationary") and shape.get("moving") and shape.get("dst"):
         st, mv, dst = shape["stationary"], shape["moving"], shape["dst"]
-        if len(st) == 2 and len(mv) == 2 and tuple(dst) != (st[1], mv[1]):
+        # An operand over the per-call limit is the thing to fix. While it is, the result tile
+        # only looks wrong, and blaming it sends the model to resize the one tile that is right.
+        over = pieces and len(st) == 2 and len(mv) == 2 and (st[1] > smax or mv[1] > mmax)
+        if len(st) == 2 and len(mv) == 2 and tuple(dst) != (st[1], mv[1]) and not over:
             if len(dst) != 2:
                 blame.append(("dst", f"it has {len(dst)} dimension(s) and needs 2"))
             else:
@@ -410,8 +422,36 @@ def _origin(func, ops, limits, source, lineno, inside, params):
                                      f"{'small' if have < want else 'large'}: it must equal the "
                                      f"second dimension of `{src}`")
                 blame.append(("dst", "; ".join(parts)))
+    if pieces and func == "nc_matmul":
+        # Measured on level 4, every run: with one dimension tiled the kernel reached 2 of 4
+        # shapes and stopped here, resending the same code. The simulator's message for this has
+        # no advice written for it at all. The limit is per call, so the only way through is
+        # more pieces: say which dimension, the limit, and that it is cut and looped like the
+        # one already cut.
+        for role, lim in (("stationary", smax), ("moving", mmax)):
+            s = shape.get(role)
+            if s and len(s) == 2 and s[1] > lim:
+                direct.append(f"`{text[role]}` is {s}: its second dimension is {s[1]}, too "
+                              f"large, since one nc_matmul takes at most {lim} there. Cut that "
+                              f"dimension too, at most {lim} at a time, and loop over the pieces.")
     if func in ("dma_copy", "tensor_copy") and shape.get("dst") and shape.get("src"):
-        if size(shape["dst"]) != size(shape["src"]):
+        big, small = (("dst", "src") if size(shape["dst"]) > size(shape["src"])
+                      else ("src", "dst"))
+        if pieces and size(shape["dst"]) != size(shape["src"]) and "hbm" in (ops[big][2] or "") \
+                and _in_loop(source, lineno):
+            # A tensor in HBM is an input or the output: its shape is given. When it is the
+            # larger side AND the copy sits in a loop, the kernel is moving one piece of it, and
+            # resizing the tile to fit the whole tensor is exactly the mistake tiling exists to
+            # avoid. Outside a loop the same sizes mean something else -- a tile sized for the
+            # wrong operand -- and "read a piece of it" would be wrong advice, so this stays out.
+            name = text[big].split("[", 1)[0].strip()
+            direct.append(f"`{name}` is in HBM and is larger than the tile on the other side: "
+                          f"{size(shape[big])} elements against {size(shape[small])}. That is "
+                          f"the tensor's own shape and it stays. "
+                          f"{'Write into' if big == 'dst' else 'Read'} only the piece of `{name}` "
+                          f"this tile is for: a slice of it with the same shape as "
+                          f"`{text[small]}`.")
+        elif size(shape["dst"]) != size(shape["src"]):
             # The tile the kernel allocated is the one it can reshape; an input is what it is.
             for role, other in (("dst", "src"), ("src", "dst")):
                 root = text[role].split("[", 1)[0]
@@ -431,7 +471,14 @@ def _origin(func, ops, limits, source, lineno, inside, params):
         done.add(root)
         made = _allocation(source, root, lineno, inside) if root not in params else None
         used = _earlier_use(source, root, lineno, inside) if func != "nc_matmul" else None
-        if used:
+        if "too many: at most" in what:
+            # No number on the allocation line fixes a tile that is too tall, and a second tile
+            # of the same height is no better. Say so before either of the remedies below.
+            where = f" It got its shape on line {made[0]}, `{made[1]}`." if made else ""
+            out.append(f"`{root}` is too tall: {what}.{where} No single tile can have that "
+                       f"many rows, so a different number there will not do: the data has to "
+                       f"be handled in pieces of at most that many rows, in a loop.")
+        elif used:
             # Measured on level 3: told to resize a tile that an earlier copy had filled, the
             # model resized it, broke that copy, was told to resize it back, and went round.
             # A tile an earlier instruction already used has the shape THAT instruction needed.
@@ -440,19 +487,12 @@ def _origin(func, ops, limits, source, lineno, inside, params):
                        f"{used[0]}, `{used[1]}`, already ran with the shape it has, so it is "
                        f"being used for two different things. Leave `{root}` as it is and "
                        f"allocate a separate tile for this line, sized to match the other side.")
-        elif made and "too many: at most" in what:
-            # No number on the allocation line fixes a tile that is too tall. Saying "change
-            # that line" would send the model to try one.
-            out.append(f"`{root}` is too tall: {what}. It got its shape on line {made[0]}, "
-                       f"`{made[1]}`. No single tile can have that many rows, so a different "
-                       f"number there will not do: the data has to be handled in pieces of at "
-                       f"most that many rows, in a loop.")
         elif made:
             out.append(f"The tile to change is `{root}`: {what}. It got its shape on line "
                        f"{made[0]}, `{made[1]}`, so that is the line to change, not this one.")
         else:
             out.append(f"The tile to change is `{root}`: {what}.")
-    return out
+    return direct + out
 
 
 def state(exc, path, source, watch=None, limit=700):
@@ -460,17 +500,18 @@ def state(exc, path, source, watch=None, limit=700):
     return state_and_rules(exc, path, source, watch, limit)[0]
 
 
-def state_and_rules(exc, path, source, watch=None, limit=700, origin=False):
+def state_and_rules(exc, path, source, watch=None, limit=700, origin=False, pieces=False):
     """(text, number of rules stated). Shapes alone say what was there; a rule says what was
     wrong with it. Only the second can stand in for advice."""
     try:
-        return _state(exc, path, source, watch, limit + (350 if origin else 0), origin)
+        return _state(exc, path, source, watch,
+                      limit + (350 if origin else 0) + (250 if pieces else 0), origin, pieces)
     except Exception as e:
         ERRORS.append(f"state: {type(e).__name__}: {e}")
         return "", 0
 
 
-def _state(exc, path, source, watch, limit, origin=False):
+def _state(exc, path, source, watch, limit, origin=False, pieces=False):
     hit = _hit(exc, path, source)
     stmt = _statement_node(source, hit[0]) if hit else None
     if stmt is None:
@@ -538,7 +579,7 @@ def _state(exc, path, source, watch, limit, origin=False):
         rules = _rules(func, ops, limits)
         if origin:
             inside = _function_spans(source).get(frame.f_code.co_name, (1, hit[0]))
-            rules += _origin(func, ops, limits, source, hit[0], inside, params)
+            rules += _origin(func, ops, limits, source, hit[0], inside, params, pieces)
         break
     if not facts and not rules:
         return "", 0
@@ -594,6 +635,28 @@ PLANTS = [
          facts=["`rhs_tile` is (128, 512)", "`result_psum` is (64, 512)"],
          origin=["do not resize it", "`nisa.dma_copy(dst=rhs_tile, src=rhs)`",
                  "allocate a separate tile"]),
+    dict(name="whole input copied into the tile for one piece", level=4, case=1,
+         old="src=lhsT[k * TILE_K:(k + 1) * TILE_K,\n"
+             "                               m * TILE_M:(m + 1) * TILE_M])",
+         new="src=lhsT)",
+         expect="nisa.dma_copy(dst=lhsT_tile,",
+         pieces=["`lhsT` is in HBM and is larger", "Read only the piece of `lhsT`",
+                 "same shape as `lhsT_tile`"]),
+    dict(name="one piece written over the whole output", level=4, case=1,
+         old="nisa.dma_copy(dst=result[m * TILE_M:(m + 1) * TILE_M,\n"
+             "                               n * TILE_N:(n + 1) * TILE_N],\n"
+             "                    src=res_sb)",
+         new="nisa.dma_copy(dst=result, src=res_sb)",
+         expect="nisa.dma_copy(dst=result, src=res_sb)",
+         pieces=["`result` is in HBM and is larger", "Write into only the piece of `result`"]),
+    dict(name="operand too wide for one matmul", level=4, case=1,
+         old="rhs_tile = nl.ndarray((TILE_K, TILE_N),",
+         new="rhs_tile = nl.ndarray((TILE_K, N),",
+         more=[("src=rhs[k * TILE_K:(k + 1) * TILE_K,\n"
+                "                              n * TILE_N:(n + 1) * TILE_N])",
+                "src=rhs[k * TILE_K:(k + 1) * TILE_K, :])")],
+         expect="nisa.nc_matmul(dst=res_psum, stationary=lhsT_tile, moving=rhs_tile)",
+         pieces=["`rhs_tile` is (128, 1024)", "too large", "at most 512", "loop over the pieces"]),
     # Not pass/fail. This asks the simulator a question: what does a result tile of the wrong
     # shape look like from outside? If the answer is a reshape error, then a kernel with no
     # reshape in it can produce one, and the line is the only thing that says where.
@@ -645,7 +708,7 @@ def selftest():
     ok2 = shown(marked) == "On K=1: line 3, `x`, raised E: m" and key(marked) == "On K=1: raised E: m"
     print(f"  shown / key: located text shown, then removed     -> {'ok' if ok2 else 'FAIL'}")
     rc = 0 if ok and ok2 else 1
-    state_rc = origin_rc = 0
+    state_rc = origin_rc = pieces_rc = 0
 
     try:
         import nki
@@ -681,6 +744,11 @@ def selftest():
             rc |= 1
             continue
         source = ref.replace(p["old"], p["new"])
+        for old, new in p.get("more", []):
+            if source.count(old) != 1:
+                print(f"  {p['name']}: FAIL, a second edit of this plant is stale")
+                rc |= 1
+            source = source.replace(old, new)
         path, err, w, _ = _run(source, p["level"], p["case"], f"plant{i}")
         if err is None:
             verdict = "the simulator accepted it" if p.get("question") else "FAIL, nothing was raised"
@@ -716,6 +784,13 @@ def selftest():
             print(f"      origin names the planted tile and line -> {'ok' if not lost else 'FAIL'}"
                   + (f"  missing: {lost}" if lost else ""))
             origin_rc |= 0 if not lost else 1
+        if p.get("pieces"):
+            cut = shown(state_and_rules(err, path, source, w, origin=True, pieces=True)[0])
+            gone = [f for f in p["pieces"] if f not in cut]
+            print(f"      pieces  {cut.strip()[-300:] if cut else 'NOTHING SAID'}")
+            print(f"      pieces says to cut, not to resize -> {'ok' if not gone else 'FAIL'}"
+                  + (f"  missing: {gone}" if gone else ""))
+            pieces_rc |= 0 if not gone else 1
 
     print()
     print("Located lines: " + ("all are the planted ones." if rc == 0 else
@@ -724,7 +799,9 @@ def selftest():
                                    "SOMETHING FAILED. Do not use --features state until this passes."))
     print("Origin of the tile: " + ("every planted line was traced." if origin_rc == 0 else
                                     "SOMETHING FAILED. Do not use --features origin until this passes."))
-    return rc | (state_rc << 1) | (origin_rc << 2)
+    print("In pieces: " + ("every planted case was told to cut." if pieces_rc == 0 else
+                           "SOMETHING FAILED. Do not use --features pieces until this passes."))
+    return rc | (state_rc << 1) | (origin_rc << 2) | (pieces_rc << 3)
 
 
 def replay(log_path, level=None, features=("locate", "state")):
