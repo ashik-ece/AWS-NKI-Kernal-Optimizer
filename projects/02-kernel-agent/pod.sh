@@ -7,15 +7,20 @@
 #
 #   ./pod.sh push                    copy this folder's code into the pod
 #   ./pod.sh check                   prove the checker in the pod: nkibench + diagnose selftests, probe
-#   ./pod.sh run NAME [FEATURES]     start a measured run in the background, e.g.
+#   ./pod.sh run NAME [FEATURES] [LEVEL]   start a measured run in the background, e.g.
 #                                      ./pod.sh run baseline
 #                                      ./pod.sh run locate locate
+#                                      ./pod.sh run state-l3 state 3     level 3 only
+#   ./pod.sh replay NAME             what the features would have told the model, for every failing
+#                                    kernel in NAME.jsonl. Calls no model; safe beside a run.
 #   ./pod.sh status [NAME]           is a run going, and the last lines of its output
 #   ./pod.sh pull NAME               copy NAME.jsonl and NAME.out into results/seat-$SEAT/
 #   ./pod.sh get REMOTE [LOCAL]      copy any one file from the pod's project folder
 #
 # Every measured run uses the same command, so only the code and the features differ between two
-# runs. Change RUN_ARGS and you can no longer compare against anything run before.
+# runs. Change RUN_ARGS and you can no longer compare against anything run before. Running one
+# LEVEL instead of all four is fine: the loop treats each level on its own, so a level's result
+# does not depend on which other levels were in the run.
 set -euo pipefail
 
 RUN_ARGS=${RUN_ARGS:---all --rounds 8 --samples 4 --context 8192 --repeat 5}
@@ -60,12 +65,20 @@ case "${1:-}" in
   run)
     NAME=${2:?give the run a name, e.g. ./pod.sh run locate locate}
     FEATURES=${3:-}
+    [ -z "${4:-}" ] || RUN_ARGS=${RUN_ARGS/--all/--level $4}
     in_pod "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\", timeout=5)' 2>/dev/null \
               || { echo 'The model is not answering on this seat yet. In the pod: cd /workspace && ./serve.sh, and wait for READY.' >&2; exit 1; }; \
             if [ -e $NAME.jsonl ]; then echo '$NAME.jsonl already exists in the pod. Pick another name: a log holding two runs cannot be told apart.' >&2; exit 1; fi; \
             if pgrep -fa 'python agent.py' | grep -qv 'bash -c'; then echo 'A run is already going on this seat. Two at once share one model and change each other. Wait, or use another seat.' >&2; exit 1; fi; \
             nohup python agent.py $RUN_ARGS --features '$FEATURES' --log $NAME.jsonl > $NAME.out 2>&1 < /dev/null & \
             sleep 2; echo \"started $NAME on $POD: agent.py $RUN_ARGS --features '$FEATURES'\"; head -3 $NAME.out"
+    ;;
+  replay)
+    NAME=${2:?which log? e.g. ./pod.sh replay baseline}
+    in_pod "python diagnose.py --replay $NAME.jsonl > replay_$NAME.out 2>&1; echo \"replay exit \$?\"; tail -n 4 replay_$NAME.out"
+    mkdir -p "$RESULTS/$POD"
+    kubectl exec "$POD" -- cat "$REMOTE/replay_$NAME.out" > "$RESULTS/$POD/replay_$NAME.out"
+    echo "saved to $RESULTS/$POD/replay_$NAME.out"
     ;;
   status)
     in_pod "pgrep -fa 'python agent.py' | grep -v 'bash -c' || echo 'no run going'; \
@@ -92,6 +105,6 @@ case "${1:-}" in
     echo "$RESULTS/$POD/${3:-$(basename "$SRC")}"
     ;;
   *)
-    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
     ;;
 esac
