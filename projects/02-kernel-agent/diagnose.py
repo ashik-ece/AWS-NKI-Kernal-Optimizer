@@ -340,20 +340,141 @@ def _rules(func, ops, limits):
     return out
 
 
+def _allocation(source, name, before, inside):
+    """(line, statement) of the last assignment to `name` above line `before`, in the function
+    spanning `inside`. That is where a tile got its shape."""
+    best = None
+    try:
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                    and isinstance(node.targets[0], ast.Name) and node.targets[0].id == name \
+                    and inside[0] <= node.lineno < before and (best is None
+                                                               or node.lineno > best):
+                best = node.lineno
+    except SyntaxError:
+        return None
+    return (best, statement_at(source, best, limit=140)) if best else None
+
+
+def _earlier_use(source, name, before, inside):
+    """(line, statement) of the first instruction above line `before` that used tile `name` as an
+    operand. Execution got past it, so the shape the tile has is the shape that line needed."""
+    best = None
+    try:
+        for node in ast.walk(ast.parse(source)):
+            if not (isinstance(node, ast.Call) and getattr(node.func, "attr", "") in OPERANDS
+                    and node.func.attr != "ndarray" and inside[0] <= node.lineno < before):
+                continue
+            for arg in list(node.args) + [k.value for k in node.keywords]:
+                root = arg
+                while isinstance(root, ast.Subscript):
+                    root = root.value
+                if isinstance(root, ast.Name) and root.id == name \
+                        and (best is None or node.lineno < best):
+                    best = node.lineno
+    except SyntaxError:
+        return None
+    return (best, statement_at(source, best, limit=140)) if best else None
+
+
+def _origin(func, ops, limits, source, lineno, inside, params):
+    """Sentences naming the tile that has to change and the line that gave it its shape.
+
+    Measured on level 3, two runs out of two: told the failing line, the shapes on it and the
+    rule, the model sent back the same tile. The line that FAILS is the nc_matmul; the line that
+    is WRONG is ten lines above it, where the result tile was allocated, and "change exactly what
+    the checker names" points at the first. So follow the tile back to where it was made, and say
+    which of its dimensions is off, in which direction, and which operand it has to match. That
+    is which thing is wrong and which way -- not the number to type.
+    """
+    pmax = limits[0]
+    shape = {k: v[1] for k, v in ops.items()}
+    text = {k: v[0] for k, v in ops.items()}
+    blame = []                                   # (role, what is wrong with it)
+
+    def size(s):
+        return math.prod(s)
+
+    if func == "nc_matmul" and shape.get("stationary") and shape.get("moving") and shape.get("dst"):
+        st, mv, dst = shape["stationary"], shape["moving"], shape["dst"]
+        if len(st) == 2 and len(mv) == 2 and tuple(dst) != (st[1], mv[1]):
+            if len(dst) != 2:
+                blame.append(("dst", f"it has {len(dst)} dimension(s) and needs 2"))
+            else:
+                parts = []
+                for i, (have, want, src, word) in enumerate(
+                        ((dst[0], st[1], text["stationary"], "first"),
+                         (dst[1], mv[1], text["moving"], "second"))):
+                    if have != want:
+                        parts.append(f"its {word} dimension is {have}, too "
+                                     f"{'small' if have < want else 'large'}: it must equal the "
+                                     f"second dimension of `{src}`")
+                blame.append(("dst", "; ".join(parts)))
+    if func in ("dma_copy", "tensor_copy") and shape.get("dst") and shape.get("src"):
+        if size(shape["dst"]) != size(shape["src"]):
+            # The tile the kernel allocated is the one it can reshape; an input is what it is.
+            for role, other in (("dst", "src"), ("src", "dst")):
+                root = text[role].split("[", 1)[0]
+                if root not in params or role == "dst":
+                    way = "small" if size(shape[role]) < size(shape[other]) else "large"
+                    blame.append((role, f"it holds {size(shape[role])} elements, too {way} for "
+                                        f"the {size(shape[other])} on the other side"))
+                    break
+        for role in ("dst", "src"):
+            if shape[role][0] > pmax and ops[role][2] in ("sbuf", "psum"):
+                blame.append((role, f"it has {shape[role][0]} rows, too many: at most {pmax}"))
+    out, done = [], set()
+    for role, what in blame:
+        root = text[role].split("[", 1)[0].strip()
+        if not root.isidentifier() or root in done:
+            continue
+        done.add(root)
+        made = _allocation(source, root, lineno, inside) if root not in params else None
+        used = _earlier_use(source, root, lineno, inside) if func != "nc_matmul" else None
+        if used:
+            # Measured on level 3: told to resize a tile that an earlier copy had filled, the
+            # model resized it, broke that copy, was told to resize it back, and went round.
+            # A tile an earlier instruction already used has the shape THAT instruction needed.
+            # It is being used for two things, and the second needs a tile of its own.
+            out.append(f"`{root}` is the wrong size here: {what}. But do not resize it: line "
+                       f"{used[0]}, `{used[1]}`, already ran with the shape it has, so it is "
+                       f"being used for two different things. Leave `{root}` as it is and "
+                       f"allocate a separate tile for this line, sized to match the other side.")
+        elif made and "too many: at most" in what:
+            # No number on the allocation line fixes a tile that is too tall. Saying "change
+            # that line" would send the model to try one.
+            out.append(f"`{root}` is too tall: {what}. It got its shape on line {made[0]}, "
+                       f"`{made[1]}`. No single tile can have that many rows, so a different "
+                       f"number there will not do: the data has to be handled in pieces of at "
+                       f"most that many rows, in a loop.")
+        elif made:
+            out.append(f"The tile to change is `{root}`: {what}. It got its shape on line "
+                       f"{made[0]}, `{made[1]}`, so that is the line to change, not this one.")
+        else:
+            out.append(f"The tile to change is `{root}`: {what}.")
+    return out
+
+
 def state(exc, path, source, watch=None, limit=700):
     """' At that line: ...' wrapped in MARK, or '' when there is nothing certain to say."""
+    return state_and_rules(exc, path, source, watch, limit)[0]
+
+
+def state_and_rules(exc, path, source, watch=None, limit=700, origin=False):
+    """(text, number of rules stated). Shapes alone say what was there; a rule says what was
+    wrong with it. Only the second can stand in for advice."""
     try:
-        return _state(exc, path, source, watch, limit)
+        return _state(exc, path, source, watch, limit + (350 if origin else 0), origin)
     except Exception as e:
         ERRORS.append(f"state: {type(e).__name__}: {e}")
-        return ""
+        return "", 0
 
 
-def _state(exc, path, source, watch, limit):
+def _state(exc, path, source, watch, limit, origin=False):
     hit = _hit(exc, path, source)
     stmt = _statement_node(source, hit[0]) if hit else None
     if stmt is None:
-        return ""
+        return "", 0
     frame = hit[1]
     local = dict(frame.f_locals)
     params = set()
@@ -415,14 +536,17 @@ def _state(exc, path, source, watch, limit):
         except Exception:
             limits = (128, 128, 512)
         rules = _rules(func, ops, limits)
+        if origin:
+            inside = _function_spans(source).get(frame.f_code.co_name, (1, hit[0]))
+            rules += _origin(func, ops, limits, source, hit[0], inside, params)
         break
     if not facts and not rules:
-        return ""
+        return "", 0
     text = (" At that line: " + "; ".join(facts) + "." if facts else "") \
         + "".join(" " + r for r in rules)
     if len(text) > limit:
         text = text[:limit].rsplit(" ", 1)[0] + " ..."
-    return f"{MARK}{text}{MARK}"
+    return f"{MARK}{text}{MARK}", len(rules)
 
 
 # ---------------------------------------------------------------- selftest
@@ -438,7 +562,9 @@ PLANTS = [
          new="rhs_tile = nl.ndarray((rhs.shape[0], rhs.shape[1] // 2),",
          expect="nisa.dma_copy(dst=rhs_tile, src=rhs)",
          facts=["`rhs_tile` is (128, 256)", "`rhs` is (128, 512)",
-                "dst holds 32768 elements and src holds 65536"]),
+                "dst holds 32768 elements and src holds 65536"],
+         origin=["The tile to change is `rhs_tile`", "too small",
+                 "`rhs_tile = nl.ndarray((rhs.shape[0], rhs.shape[1] // 2),"]),
     dict(name="1-D tile", level=3, case=0,
          old="lhs_tile = nl.ndarray(lhsT.shape,",
          new="lhs_tile = nl.ndarray((lhsT.shape[0] * lhsT.shape[1],),",
@@ -450,13 +576,24 @@ PLANTS = [
              "  whole = nl.ndarray(lhsT.shape, dtype=lhsT.dtype, buffer=nl.sbuf)\n"
              "  nisa.dma_copy(dst=whole, src=lhsT)\n",
          expect="nisa.dma_copy(dst=whole, src=lhsT)",
-         facts=["`whole` is (256, 256)", "`lhsT` is (256, 256)"]),
+         facts=["`whole` is (256, 256)", "`lhsT` is (256, 256)"],
+         origin=["`whole` is too tall", "too many", "`whole = nl.ndarray(lhsT.shape,",
+                 "in pieces"]),
     dict(name="tile too small, call split over lines, inside three loops", level=4, case=1,
          old="rhs_tile = nl.ndarray((TILE_K, TILE_N),",
          new="rhs_tile = nl.ndarray((TILE_K, TILE_N // 2),",
          expect="nisa.dma_copy(dst=rhs_tile,",
          facts=["`rhs_tile` is (128, 256)", "`k` = 0", "`TILE_K` = 128",
-                "dst holds 32768 elements and src holds 65536"]),
+                "dst holds 32768 elements and src holds 65536"],
+         origin=["The tile to change is `rhs_tile`", "too small",
+                 "`rhs_tile = nl.ndarray((TILE_K, TILE_N // 2),"]),
+    dict(name="one tile used for two things", level=3, case=0,
+         old="nisa.tensor_copy(dst=result_sbuf, src=result_psum)",
+         new="nisa.tensor_copy(dst=rhs_tile, src=result_psum)",
+         expect="nisa.tensor_copy(dst=rhs_tile, src=result_psum)",
+         facts=["`rhs_tile` is (128, 512)", "`result_psum` is (64, 512)"],
+         origin=["do not resize it", "`nisa.dma_copy(dst=rhs_tile, src=rhs)`",
+                 "allocate a separate tile"]),
     # Not pass/fail. This asks the simulator a question: what does a result tile of the wrong
     # shape look like from outside? If the answer is a reshape error, then a kernel with no
     # reshape in it can produce one, and the line is the only thing that says where.
@@ -465,7 +602,9 @@ PLANTS = [
          new="result_psum = nl.ndarray((1, M),",
          expect="nisa.nc_matmul(result_psum, lhs_tile, rhs_tile)",
          facts=["`result_psum` is (1, 64)", "`lhs_tile` is (128, 64)", "`rhs_tile` is (128, 512)",
-                "dst must be exactly that shape"]),
+                "dst must be exactly that shape"],
+         origin=["The tile to change is `result_psum`", "its first dimension is 1, too small",
+                 "second dimension of `rhs_tile`", "`result_psum = nl.ndarray((1, M),"]),
 ]
 
 
@@ -506,7 +645,7 @@ def selftest():
     ok2 = shown(marked) == "On K=1: line 3, `x`, raised E: m" and key(marked) == "On K=1: raised E: m"
     print(f"  shown / key: located text shown, then removed     -> {'ok' if ok2 else 'FAIL'}")
     rc = 0 if ok and ok2 else 1
-    state_rc = 0
+    state_rc = origin_rc = 0
 
     try:
         import nki
@@ -569,16 +708,26 @@ def selftest():
             print(f"      state reports every planted fact -> {'ok' if not missing else 'FAIL'}"
                   + (f"  missing: {missing}" if missing else ""))
             state_rc |= 0 if not missing else 1
+        traced = shown(state_and_rules(err, path, source, w, origin=True)[0])
+        lost = [f for f in p.get("origin", []) if f not in traced]
+        if p.get("origin"):
+            tail = traced.split("elements.", 1)[-1].strip() if "elements." in traced else traced
+            print(f"      origin  {tail[-330:] if tail else 'NOTHING TRACED'}")
+            print(f"      origin names the planted tile and line -> {'ok' if not lost else 'FAIL'}"
+                  + (f"  missing: {lost}" if lost else ""))
+            origin_rc |= 0 if not lost else 1
 
     print()
     print("Located lines: " + ("all are the planted ones." if rc == 0 else
                                "SOMETHING FAILED. Do not use --features locate until this passes."))
     print("State on the line: " + ("every planted fact was reported." if state_rc == 0 else
                                    "SOMETHING FAILED. Do not use --features state until this passes."))
-    return rc | (state_rc << 1)
+    print("Origin of the tile: " + ("every planted line was traced." if origin_rc == 0 else
+                                    "SOMETHING FAILED. Do not use --features origin until this passes."))
+    return rc | (state_rc << 1) | (origin_rc << 2)
 
 
-def replay(log_path, level=None):
+def replay(log_path, level=None, features=("locate", "state")):
     """Re-grade every distinct failing kernel in an attempt log with the features on.
 
     Two uses. Before a measured run: the features meet kernels a model really wrote, which are
@@ -603,7 +752,7 @@ def replay(log_path, level=None):
     for (lv, _), (r, count) in sorted(groups.items(), key=lambda kv: (kv[0][0], -kv[1][1])):
         n["kernels"] += 1
         agent.FEATURES.clear()
-        agent.FEATURES.update({"locate", "state"})
+        agent.FEATURES.update(features)
         try:
             _, _, marked = agent._grade(r["code"], lv)
         finally:
@@ -640,11 +789,12 @@ def main():
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--replay", metavar="LOG.jsonl")
     ap.add_argument("--level", type=int)
+    ap.add_argument("--features", default="locate,state", help="for --replay")
     a = ap.parse_args()
     if a.selftest:
         sys.exit(selftest())
     if a.replay:
-        sys.exit(replay(a.replay, a.level))
+        sys.exit(replay(a.replay, a.level, {f for f in a.features.split(",") if f}))
     ap.print_help()
 
 

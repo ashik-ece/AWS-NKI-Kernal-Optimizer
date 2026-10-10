@@ -78,7 +78,8 @@ def main():
     for name, script in scenarios.items():
         base_result, base_prompts, base_stop = run(set(), script)
         print(f"  {name}")
-        for feats in ({"locate"}, {"locate", "state"}):
+        for feats in ({"locate"}, {"locate", "state"}, {"locate", "state", "origin"}):
+            # (internal and facts remove text, so they are checked separately below)
             tag = "+".join(sorted(feats))
             result, prompts, stop = run(feats, script)
             ok = base_result == result and base_stop == stop and len(prompts) == len(base_prompts)
@@ -97,6 +98,47 @@ def main():
             print(f"      {tag:13s} reaches the model in every repair prompt  -> "
                   f"{'ok' if ok else 'FAIL'}  ({told} of {len(prompts) - 1})")
             rc |= 0 if ok else 1
+
+    # facts REMOVES text, so "identical once hidden" does not apply to it. What must still hold:
+    # the loop takes the same path, since which failures count as the same has not changed.
+    for name, script in scenarios.items():
+        base_result, base_prompts, base_stop = run(set(), script)
+        result, prompts, stop = run({"locate", "state", "facts"}, script)
+        ok = base_result == result and base_stop == stop and len(prompts) == len(base_prompts)
+        print(f"  facts, {name}: same reward, rounds and stop reason -> {'ok' if ok else 'FAIL'}")
+        rc |= 0 if ok else 1
+    agent.FEATURES.update({"locate", "state", "facts"})
+    _, _, feedback, _ = agent.grade(planted("result tile of the wrong shape"), 3)
+    agent.FEATURES.clear()
+    ok = "Do not reshape" not in feedback and "At that line: " in feedback and "raised " in feedback
+    print(f"  grade() with facts: the state replaces the canned advice -> {'ok' if ok else 'FAIL'}")
+    print(f"      {feedback}")
+    rc |= 0 if ok else 1
+
+    # internal: the advice goes only when the error came from inside the simulator.
+    agent.FEATURES.update({"locate", "state", "internal"})
+    _, _, numpy_error, _ = agent.grade(planted("result tile of the wrong shape"), 3)
+    _, _, own_check, _ = agent.grade(planted("1-D tile"), 3)
+    agent.FEATURES.clear()
+    ok = ("Do not reshape" not in numpy_error and "At that line" in numpy_error
+          and "A 1-D tile is not allowed" in own_check and "At that line" in own_check)
+    print(f"  grade() with internal: advice dropped for a numpy error, kept for the simulator's "
+          f"own check -> {'ok' if ok else 'FAIL'}")
+    rc |= 0 if ok else 1
+
+    # An invented function name breaks no shape rule, so the advice (the real names) must stay.
+    invented = open("reference_level3.py").read().replace(
+        "nisa.tensor_copy(dst=result_sbuf, src=result_psum)",
+        "nisa.copy_out(dst=result_sbuf, src=result_psum)")
+    agent.FEATURES.update({"locate", "state", "facts"})
+    _, _, feedback, _ = agent.grade(invented, 3)
+    agent.FEATURES.clear()
+    _, _, plain, _ = agent.grade(invented, 3)
+    advice = plain.split("has no attribute 'copy_out'", 1)[-1].strip()
+    ok = bool(advice) and advice in feedback and "line " in feedback
+    print(f"  grade() with facts: no rule broken, so the advice stays -> {'ok' if ok else 'FAIL'}")
+    print(f"      {feedback[:260]}")
+    rc |= 0 if ok else 1
 
     for feats, needle in (({"locate"}, "line "), ({"locate", "state"}, "At that line: ")):
         agent.FEATURES.clear()

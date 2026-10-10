@@ -5,14 +5,18 @@
 #
 #   export SEAT=154                  your own seat number, once per terminal
 #
+#   ./pod.sh serve                   start the model on this seat and wait for READY (about 4 min)
 #   ./pod.sh push                    copy this folder's code into the pod
 #   ./pod.sh check                   prove the checker in the pod: nkibench + diagnose selftests, probe
+#   ./pod.sh launch NAME [FEATURES] [LEVEL]   serve, push, check and run, stopping at the first
+#                                    that fails. For bringing up a free seat in one go.
 #   ./pod.sh run NAME [FEATURES] [LEVEL]   start a measured run in the background, e.g.
 #                                      ./pod.sh run baseline
 #                                      ./pod.sh run locate locate
 #                                      ./pod.sh run state-l3 state 3     level 3 only
 #   ./pod.sh replay NAME             what the features would have told the model, for every failing
 #                                    kernel in NAME.jsonl. Calls no model; safe beside a run.
+#   ./pod.sh stop                    stop the run going on this seat. Its log so far is kept.
 #   ./pod.sh status [NAME]           is a run going, and the last lines of its output
 #   ./pod.sh pull NAME               copy NAME.jsonl and NAME.out into results/seat-$SEAT/
 #   ./pod.sh get REMOTE [LOCAL]      copy any one file from the pod's project folder
@@ -30,10 +34,25 @@ RESULTS=$(cd "$HERE/../.." && pwd)/results
 
 [ -n "${SEAT:-}" ] || { echo "Set your seat first:  export SEAT=<your number>" >&2; exit 1; }
 POD=seat-$SEAT
-in_pod() { kubectl exec -i "$POD" -- bash -c "cd $REMOTE && $1"; }
+# No -i: nothing here reads from the keyboard, and a kubectl that asks for the terminal is
+# suspended the moment the command is put in the background.
+in_pod() { kubectl exec "$POD" -- bash -c "cd $REMOTE && $1" < /dev/null; }
 
 case "${1:-}" in
+  serve)
+    # serve.sh starts the server detached, so it keeps running after this returns or drops.
+    kubectl exec "$POD" -- bash -c "cd /workspace && ./serve.sh" < /dev/null
+    ;;
   push)
+    # A run that is going keeps the code it started with, so pushing does not disturb it. But
+    # the files in the pod are replaced for whatever runs NEXT, which matters on a seat that is
+    # someone else's: say so, loudly, before doing it.
+    if kubectl exec "$POD" -- bash -c "pgrep -fa 'python agent.py' | grep -v 'bash -c'" 2>/dev/null | grep -q .; then
+      echo "NOTE: a run is going on $POD. It is not affected, but the code files in this pod are" >&2
+      echo "about to be replaced with yours. If this is a teammate's seat, tell them to push" >&2
+      echo "their own code again before their next run. Ctrl+C in the next 5 seconds to stop." >&2
+      sleep 5
+    fi
     # The harness itself must be the one the organisers shipped, or scores stop being comparable
     # with theirs and with a baseline run on the untouched pod. Say so before overwriting it.
     mine=$(shasum -a 256 "$HERE/nkibench.py" | cut -d' ' -f1)
@@ -44,12 +63,26 @@ case "${1:-}" in
       echo "  ./pod.sh get nkibench.py nkibench.pod.py" >&2
       [ "${FORCE:-}" = 1 ] || exit 1
     fi
-    # tar over exec rather than kubectl cp, so logs and caches in either place are left alone.
     # devtools/ stays on the laptop: its stand-in simulator must never be importable in the pod.
-    COPYFILE_DISABLE=1 tar --no-xattrs -cf - -C "$HERE" \
-        --exclude '__pycache__' --exclude './devtools' --exclude '*.jsonl' --exclude '*.out' \
-        --exclude '*.log' . \
-      | kubectl exec -i "$POD" -- tar -xf - -C "$REMOTE" --no-same-owner
+    if PREFIX=$(git -C "$HERE" rev-parse --show-prefix 2>/dev/null) && [ -n "$PREFIX" ]; then
+      # Only COMMITTED code goes to a seat. A run is then always some commit, never an edit that
+      # happened to be half made when the push ran -- which is how a measured run stops being
+      # reproducible without anyone noticing.
+      REV=$(git -C "$HERE" rev-parse --short HEAD)
+      if ! git -C "$HERE" diff --quiet HEAD -- . ; then
+        echo "NOTE: this folder has uncommitted changes. They are NOT pushed: the seat gets commit $REV." >&2
+      fi
+      git -C "$(git -C "$HERE" rev-parse --show-toplevel)" archive "HEAD:${PREFIX%/}" -- . ':!devtools' \
+        | kubectl exec -i "$POD" -- tar -xf - -C "$REMOTE" --no-same-owner
+    else
+      # Not a git checkout (a copy of the folder): send the files as they are.
+      REV=copy
+      COPYFILE_DISABLE=1 tar --no-xattrs -cf - -C "$HERE" \
+          --exclude '__pycache__' --exclude './devtools' --exclude '*.jsonl' --exclude '*.out' \
+          --exclude '*.log' . \
+        | kubectl exec -i "$POD" -- tar -xf - -C "$REMOTE" --no-same-owner
+    fi
+    in_pod "echo $REV > .pushed_rev"
     in_pod "python -c 'import agent, diagnose; print(\"pushed to $POD; agent.py knows features:\", sorted(agent.KNOWN_FEATURES))'"
     ;;
   check)
@@ -61,6 +94,18 @@ case "${1:-}" in
       kubectl exec "$POD" -- cat "$REMOTE/$f" > "$RESULTS/$POD/$f"
     done
     echo "saved to $RESULTS/$POD/check_*.out"
+    # A check that cannot fail is not a check. No scored run on a seat where this did not pass.
+    if ! grep -q "Located lines: all are the planted ones." "$RESULTS/$POD/check_diagnose.out" \
+       || ! grep -q "State on the line: every planted fact was reported." "$RESULTS/$POD/check_diagnose.out" \
+       || ! grep -q "Origin of the tile: every planted line was traced." "$RESULTS/$POD/check_diagnose.out" \
+       || ! grep -q "SELFTEST PASSED" "$RESULTS/$POD/check_nkibench.out"; then
+      echo "CHECK FAILED on $POD. Read $RESULTS/$POD/check_*.out before running anything here." >&2
+      exit 1
+    fi
+    echo "check passed on $POD"
+    ;;
+  launch)
+    "$0" serve && "$0" push && "$0" check && "$0" run "${2:?give the run a name}" "${3:-}" "${4:-}"
     ;;
   run)
     NAME=${2:?give the run a name, e.g. ./pod.sh run locate locate}
@@ -72,6 +117,12 @@ case "${1:-}" in
             if pgrep -fa 'python agent.py' | grep -qv 'bash -c'; then echo 'A run is already going on this seat. Two at once share one model and change each other. Wait, or use another seat.' >&2; exit 1; fi; \
             nohup python agent.py $RUN_ARGS --features '$FEATURES' --log $NAME.jsonl > $NAME.out 2>&1 < /dev/null & \
             sleep 2; echo \"started $NAME on $POD: agent.py $RUN_ARGS --features '$FEATURES'\"; head -3 $NAME.out"
+    # The run sheet: which code, on which seat, with which settings. Written by the tool so it
+    # cannot be forgotten. The commit is the one that was pushed to this seat.
+    REV=$(kubectl exec "$POD" -- cat "$REMOTE/.pushed_rev" 2>/dev/null || echo "?")
+    mkdir -p "$RESULTS"
+    [ -e "$RESULTS/RUNS.tsv" ] || printf 'started\tseat\tname\tfeatures\tcommit\targs\n' > "$RESULTS/RUNS.tsv"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M')" "$SEAT" "$NAME" "${FEATURES:-none}" "$REV" "$RUN_ARGS" >> "$RESULTS/RUNS.tsv"
     ;;
   replay)
     NAME=${2:?which log? e.g. ./pod.sh replay baseline}
@@ -79,6 +130,10 @@ case "${1:-}" in
     mkdir -p "$RESULTS/$POD"
     kubectl exec "$POD" -- cat "$REMOTE/replay_$NAME.out" > "$RESULTS/$POD/replay_$NAME.out"
     echo "saved to $RESULTS/$POD/replay_$NAME.out"
+    ;;
+  stop)
+    # [p]ython, so the pattern cannot match the shell that is carrying this very command.
+    in_pod "pkill -f '[p]ython agent.py' && echo 'stopped the run on $POD' || echo 'no run was going on $POD'"
     ;;
   status)
     in_pod "pgrep -fa 'python agent.py' | grep -v 'bash -c' || echo 'no run going'; \
@@ -105,6 +160,6 @@ case "${1:-}" in
     echo "$RESULTS/$POD/${3:-$(basename "$SRC")}"
     ;;
   *)
-    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
     ;;
 esac
