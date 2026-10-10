@@ -342,18 +342,24 @@ def _rules(func, ops, limits):
 
 def state(exc, path, source, watch=None, limit=700):
     """' At that line: ...' wrapped in MARK, or '' when there is nothing certain to say."""
+    return state_and_rules(exc, path, source, watch, limit)[0]
+
+
+def state_and_rules(exc, path, source, watch=None, limit=700):
+    """(text, number of rules stated). Shapes alone say what was there; a rule says what was
+    wrong with it. Only the second can stand in for advice."""
     try:
         return _state(exc, path, source, watch, limit)
     except Exception as e:
         ERRORS.append(f"state: {type(e).__name__}: {e}")
-        return ""
+        return "", 0
 
 
 def _state(exc, path, source, watch, limit):
     hit = _hit(exc, path, source)
     stmt = _statement_node(source, hit[0]) if hit else None
     if stmt is None:
-        return ""
+        return "", 0
     frame = hit[1]
     local = dict(frame.f_locals)
     params = set()
@@ -417,12 +423,12 @@ def _state(exc, path, source, watch, limit):
         rules = _rules(func, ops, limits)
         break
     if not facts and not rules:
-        return ""
+        return "", 0
     text = (" At that line: " + "; ".join(facts) + "." if facts else "") \
         + "".join(" " + r for r in rules)
     if len(text) > limit:
         text = text[:limit].rsplit(" ", 1)[0] + " ..."
-    return f"{MARK}{text}{MARK}"
+    return f"{MARK}{text}{MARK}", len(rules)
 
 
 # ---------------------------------------------------------------- selftest

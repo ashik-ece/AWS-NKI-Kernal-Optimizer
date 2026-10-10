@@ -60,7 +60,12 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #   locate   name the line of the kernel that was executing when the simulator raised
 #   state    also say what was true on that line: the shape and buffer of every tile it names,
 #            and any rule those shapes break. Implies locate, since "that line" needs naming.
-KNOWN_FEATURES = {"locate", "state"}
+#   facts    when the shapes on the line break a rule, send that rule INSTEAD of the advice
+#            written for the error text, not as well as. The advice is keyed on what the
+#            simulator said, and the same sentence comes out of different mistakes: a result
+#            tile of the wrong shape is told "Do not reshape" by a kernel that never reshapes.
+#            With no rule to state the advice stays, since it is then all there is. Implies state.
+KNOWN_FEATURES = {"locate", "state", "facts"}
 FEATURES = set()
 
 # Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
@@ -157,10 +162,12 @@ def _grade(source, level):
             return (sum(WEIGHTS[k] for k, v in parts.items() if v), parts,
                     f"CANNOT SIMULATE: {e}")
         except Exception as e:
+            raised = f"raised {type(e).__name__}: {e}"
             where = diagnose.where(e, path, source) if "locate" in FEATURES else ""
-            state = diagnose.state(e, path, source, watch) if "state" in FEATURES else ""
-            failures.append((nkibench.label(case, level),
-                             where + enrich(f"raised {type(e).__name__}: {e}") + state))
+            state, rules = (diagnose.state_and_rules(e, path, source, watch)
+                            if "state" in FEATURES else ("", 0))
+            told = raised if "facts" in FEATURES and rules else enrich(raised)
+            failures.append((nkibench.label(case, level), where + told + state))
             continue
         parts["runs"] = True
         m = (nkibench.check_inputs_untouched(before, args)
@@ -641,6 +648,8 @@ def main():
     if asked - KNOWN_FEATURES:
         sys.exit(f"unknown --features {sorted(asked - KNOWN_FEATURES)}. Known: "
                  f"{sorted(KNOWN_FEATURES)}")
+    if "facts" in asked:
+        asked.add("state")
     if "state" in asked:
         asked.add("locate")
     FEATURES.update(asked)

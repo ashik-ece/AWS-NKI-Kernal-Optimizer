@@ -5,8 +5,11 @@
 #
 #   export SEAT=154                  your own seat number, once per terminal
 #
+#   ./pod.sh serve                   start the model on this seat and wait for READY (about 4 min)
 #   ./pod.sh push                    copy this folder's code into the pod
 #   ./pod.sh check                   prove the checker in the pod: nkibench + diagnose selftests, probe
+#   ./pod.sh launch NAME [FEATURES] [LEVEL]   serve, push, check and run, stopping at the first
+#                                    that fails. For bringing up a free seat in one go.
 #   ./pod.sh run NAME [FEATURES] [LEVEL]   start a measured run in the background, e.g.
 #                                      ./pod.sh run baseline
 #                                      ./pod.sh run locate locate
@@ -33,7 +36,20 @@ POD=seat-$SEAT
 in_pod() { kubectl exec -i "$POD" -- bash -c "cd $REMOTE && $1"; }
 
 case "${1:-}" in
+  serve)
+    # serve.sh starts the server detached, so it keeps running after this returns or drops.
+    kubectl exec -i "$POD" -- bash -c "cd /workspace && ./serve.sh"
+    ;;
   push)
+    # A run that is going keeps the code it started with, so pushing does not disturb it. But
+    # the files in the pod are replaced for whatever runs NEXT, which matters on a seat that is
+    # someone else's: say so, loudly, before doing it.
+    if kubectl exec "$POD" -- bash -c "pgrep -fa 'python agent.py' | grep -v 'bash -c'" 2>/dev/null | grep -q .; then
+      echo "NOTE: a run is going on $POD. It is not affected, but the code files in this pod are" >&2
+      echo "about to be replaced with yours. If this is a teammate's seat, tell them to push" >&2
+      echo "their own code again before their next run. Ctrl+C in the next 5 seconds to stop." >&2
+      sleep 5
+    fi
     # The harness itself must be the one the organisers shipped, or scores stop being comparable
     # with theirs and with a baseline run on the untouched pod. Say so before overwriting it.
     mine=$(shasum -a 256 "$HERE/nkibench.py" | cut -d' ' -f1)
@@ -61,6 +77,17 @@ case "${1:-}" in
       kubectl exec "$POD" -- cat "$REMOTE/$f" > "$RESULTS/$POD/$f"
     done
     echo "saved to $RESULTS/$POD/check_*.out"
+    # A check that cannot fail is not a check. No scored run on a seat where this did not pass.
+    if ! grep -q "Located lines: all are the planted ones." "$RESULTS/$POD/check_diagnose.out" \
+       || ! grep -q "State on the line: every planted fact was reported." "$RESULTS/$POD/check_diagnose.out" \
+       || ! grep -q "SELFTEST PASSED" "$RESULTS/$POD/check_nkibench.out"; then
+      echo "CHECK FAILED on $POD. Read $RESULTS/$POD/check_*.out before running anything here." >&2
+      exit 1
+    fi
+    echo "check passed on $POD"
+    ;;
+  launch)
+    "$0" serve && "$0" push && "$0" check && "$0" run "${2:?give the run a name}" "${3:-}" "${4:-}"
     ;;
   run)
     NAME=${2:?give the run a name, e.g. ./pod.sh run locate locate}
@@ -72,6 +99,13 @@ case "${1:-}" in
             if pgrep -fa 'python agent.py' | grep -qv 'bash -c'; then echo 'A run is already going on this seat. Two at once share one model and change each other. Wait, or use another seat.' >&2; exit 1; fi; \
             nohup python agent.py $RUN_ARGS --features '$FEATURES' --log $NAME.jsonl > $NAME.out 2>&1 < /dev/null & \
             sleep 2; echo \"started $NAME on $POD: agent.py $RUN_ARGS --features '$FEATURES'\"; head -3 $NAME.out"
+    # The run sheet: which code, on which seat, with which settings. Written by the tool so it
+    # cannot be forgotten. A commit marked -dirty means the code that ran is not in git.
+    REV=$(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo "?")
+    git -C "$HERE" diff --quiet HEAD -- . 2>/dev/null || REV="$REV-dirty"
+    mkdir -p "$RESULTS"
+    [ -e "$RESULTS/RUNS.tsv" ] || printf 'started\tseat\tname\tfeatures\tcommit\targs\n' > "$RESULTS/RUNS.tsv"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M')" "$SEAT" "$NAME" "${FEATURES:-none}" "$REV" "$RUN_ARGS" >> "$RESULTS/RUNS.tsv"
     ;;
   replay)
     NAME=${2:?which log? e.g. ./pod.sh replay baseline}
@@ -105,6 +139,6 @@ case "${1:-}" in
     echo "$RESULTS/$POD/${3:-$(basename "$SRC")}"
     ;;
   *)
-    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
     ;;
 esac
