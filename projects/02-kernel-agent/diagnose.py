@@ -516,13 +516,12 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False, err
                           f"`{text[small]}`.")
         elif size(shape["dst"]) != size(shape["src"]):
             # The tile the kernel allocated is the one it can reshape; an input is what it is.
-            for role, other in (("dst", "src"), ("src", "dst")):
-                root = text[role].split("[", 1)[0]
-                if root not in params or role == "dst":
-                    way = "small" if size(shape[role]) < size(shape[other]) else "large"
-                    blame.append((role, f"it holds {size(shape[role])} elements, too {way} for "
-                                        f"the {size(shape[other])} on the other side"))
-                    break
+            sides = [(r, o) for r, o in (("dst", "src"), ("src", "dst"))
+                     if text[r].split("[", 1)[0].strip() not in params] or [("dst", "src")]
+            role, other = sides[0]
+            way = "small" if size(shape[role]) < size(shape[other]) else "large"
+            blame.append((role, f"it holds {size(shape[role])} elements, too {way} for "
+                                f"the {size(shape[other])} on the other side"))
         for role in ("dst", "src"):
             if shape[role][0] > pmax and ops[role][2] in ("sbuf", "psum"):
                 blame.append((role, f"it has {shape[role][0]} rows, too many: at most {pmax}"))
@@ -533,8 +532,15 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False, err
             continue
         done.add(root)
         made = _allocation(source, root, lineno, inside) if root not in params else None
-        used = _earlier_use(source, root, lineno, inside) if func != "nc_matmul" else None
-        later = ([c for c in _later_calls(source, root, lineno, inside)]
+        # Only a use AFTER the tile last got its shape says anything about that shape: a name
+        # allocated, used, then allocated again is a new tile.
+        since = (made[0] + 1, inside[1]) if made else inside
+        used = _earlier_use(source, root, lineno, since) if func != "nc_matmul" else None
+        # Later WRITES only. A tile that is loaded here and read by a matmul further down is one
+        # tile doing one job. Measured on level 4: counting that read as "other data" told the
+        # model to split a tile that was fine, and dropped the advice it needed (0.62).
+        later = ([c for c in _later_calls(source, root, lineno, inside)
+                  if c[2].get("dst", ("",))[0] == root]
                  if ahead and func in ("dma_copy", "tensor_copy") and not used else [])
         if "too many: at most" in what:
             # No number on the allocation line fixes a tile that is too tall, and a second tile
@@ -558,12 +564,19 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False, err
             # model resized it for one of the three and failed on the next, four times over.
             # The old hint's example, a (128, 512) tile, was the very tile it then allocated.
             lines = ", ".join(str(c[0]) for c in later[:4])
-            out.append(f"`{root}` is the wrong size here: {what}. It is also used on line"
-                       f"{'s' if len(later) > 1 else ''} {lines} for other data, and one tile "
+            out.append(f"`{root}` is the wrong size here: {what}. It is also written to on line"
+                       f"{'s' if len(later) > 1 else ''} {lines} with other data, and one tile "
                        f"cannot hold different things. Allocate a separate tile for each thing "
                        f"it holds, each shaped like what is copied into it.")
             replaces = True
         elif made:
+            # The old hint for a copy mismatch explains how to take a piece of a BIGGER tensor.
+            # That is the answer when the source is the larger side, and it stays. When the
+            # tile is the larger side there is nothing to take a piece of, and the hint's
+            # example -- a (128, 512) tile -- is the tile the model then allocates.
+            if ahead and func in ("dma_copy", "tensor_copy") and role == "dst" \
+                    and size(shape["dst"]) > size(shape["src"]):
+                replaces = True
             piece = (" Each pass of the loop makes one piece of the result, so that tile holds "
                      "one piece: fill it, copy it to its place in the output, then reuse it."
                      if pieces and func == "nc_matmul" and role == "dst"
@@ -775,7 +788,7 @@ PLANTS = [
          new="lhs_tile = nl.ndarray(rhs.shape,",
          more=[("nisa.dma_copy(dst=rhs_tile, src=rhs)", "nisa.dma_copy(dst=lhs_tile, src=rhs)")],
          expect="nisa.dma_copy(dst=lhs_tile, src=lhsT)",
-         ahead=["`lhs_tile` is the wrong size here", "It is also used on line",
+         ahead=["`lhs_tile` is the wrong size here", "It is also written to on line 57 with",
                 "Allocate a separate tile for each thing"]),
     # Not pass/fail. This asks the simulator a question: what does a result tile of the wrong
     # shape look like from outside? If the answer is a reshape error, then a kernel with no
