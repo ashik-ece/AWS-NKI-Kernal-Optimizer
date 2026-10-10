@@ -1,8 +1,9 @@
 # The agent was stuck on the checker's words, not on tiling
 
 **Team:** John (measurement, write-up), Achyuthan (checker), Perumal (agent and prompt).
-Full evidence: `report/01` (baseline, taxonomy, hypotheses), `report/03` (run sheet), `report/04` (long note),
-`results/RUNS.tsv` (every run, seat, commit, flags).
+Full evidence: `report/01-baseline-and-taxonomy.md` (baseline, taxonomy, hypotheses),
+`report/03-run-sheet.md` (run sheet), `report/04-one-page-note.md` (long note), `results/RUNS.tsv` (every run,
+seat, commit, flags).
 
 ## Claim
 
@@ -53,7 +54,7 @@ removes the detour, and its solves take 4 rounds instead of 6.
 
 ## Holes in the scoring, reproduced on the real simulator
 
-Six repro kernels in `projects/02-kernel-agent/findings/`, each run through the organisers' own
+Six repro kernels in `../findings/` (that is, `projects/02-kernel-agent/findings/`), each run through the organisers' own
 `nkibench.py --check` (output: `results/seat-150/findings.out`). Two pass that shouldn't: a level 4 kernel
 with 256- and 512-row SBUF tiles (4 of 4 shapes), and a level 3 kernel returning its PSUM tile (1 of 1). The
 rule scan catches a tile written `(256, M)` but not `(K, M)`. Two messages mislead: "cannot reshape" for a
