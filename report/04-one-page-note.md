@@ -1,7 +1,8 @@
 # The agent was stuck on the checker's words, not on tiling
 
 **Team:** John (measurement, write-up), Achyuthan (checker), Perumal (agent and prompt).
-**Draft 15:20.** Numbers marked TODO are runs still in progress.
+**Long version, kept as the working record.** The final, shorter note is `NOTE.md` (`report/05-one-page-final.md`);
+where the two differ, the final note has the later numbers (level 3 pooled to 16 of 17, level 8, `names`, `example`).
 
 ## Claim
 
@@ -44,17 +45,18 @@ are the real simulator's.
 | 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** as scored; **with the 128-row rule enforced (`strict`): 0.62 in 5 of 6 runs, 0.50 in 1** | not run alone; with `pieces`: **0.62** (1 run, regressed) | 0.75 in 4 of 5 completed runs, 0.62 in 1 (as scored) | n/a |
 
 Other flag sets, all reported: `pieces` on level 4 at 8 rounds scored 0.75, 0.62 and 0.50, so it is not
-adopted; `pieces,ahead` solves level 3 3/3. TODO ~17:00: `names` (`internal,origin,ahead,names`, `2d87250`):
-level 3 on seats 150 and 158, level 2 on 157, level 4 on 153. `example` (`32f6055`, a worked tiling example
+adopted; `pieces,ahead` solves level 3 3/3. `names` (`internal,origin,ahead,names`, `2d87250`, stopped at 16:43): level 2 3/5;
+level 3 3 solved in 8 runs, 2 chip-valid; level 4 0.75 ×2 as scored, 0.62 under `strict`. Not adopted. `example` (`32f6055`, a worked tiling example
 in the repair prompt after a too-tall tile) is a prompt change, reported separately. Started 16:21 on `32f6055`,
 all at **16 rounds** (outside the frozen 8, so comparable only with each other and with `base-r16-l4`):
 `ex-all-l4` (154, 156: `internal,origin,ahead,names,strict,example`), `ex-min-l4` (159:
 `internal,origin,strict,example`), and `hint-checker-l1` (151: the checker plus `ahead,names`, on code that
 contains the detailed level 1 hint, so it is "checker + prompt C detailed", not a checker result).
-TODO 18:00: `checker-l3c` (150, 158, `dae55d8`, from 16:50): 10 more level 3 runs of the reportable checker,
-pooled with the 6/7 (identical level 3 feedback on all 93 logged kernels; the only code change is the
-bytecode fix) and listed per batch. Level 8, attention, untuned (157 `base-l8` no flags, 153 `checker-l8`
-reportable checker, 8 rounds): does the checker generalise? `layout` (150, 158, started 16:43) was stopped
+`checker-l3c` (150, 158, `dae55d8`, from 16:50): 10 more level 3 runs of the reportable checker, **10 of 10,
+every solve in round 6**, pooled with the 6/7 to **16 of 17** (identical level 3 feedback on all 93 logged
+kernels; the only code change is the bytecode fix). Level 8, attention, untuned, 8 rounds: 0/5 (0.30) without
+flags (157 `base-l8`) and 0/5 (0.30) with the reportable checker (153 `checker-l8`): no transfer. `example`
+group: 2 of 14 runs reach a chip-valid 0.75 on level 4. `hint-checker-l1`: 0.30 in all 5 runs. `layout` (150, 158, started 16:43) was stopped
 before finishing and is not scored. Scoring gaps found, each with a repro kernel run through
 `nkibench.py --check` on the real simulator: `findings/`, output in `results/seat-150/findings.out`.
 The fixed `ahead` replaces the checker only if level 3 holds, level 4 holds 0.75 and level 2 is no worse.
@@ -156,11 +158,12 @@ Full taxonomy with examples: `report/01-baseline-and-taxonomy.md` (section 2b fo
   earlier single-run tries (88 attempts, some with a different hint); only the final 104-attempt repeat is
   counted. The detailed version in `dev` (`ce61bac`) names the `.ap()` view, the reduction axes and the
   `1/(p*p)` scale, i.e. the reference algorithm; a solve with it would show the model can follow a recipe,
-  not that it derived one. TODO: its result (seat 155, running).
+  not that it derived one. Result (seat 155, `l1-detailed-b`): followed in 100 of 100 attempts, still 0/5,
+  failing on a fixed `(C, 128, 128)` tile, the same tile-sizing error as level 3.
 
 ## Conclusion
 
-TODO (final wording after the last runs). Draft: one wall fell cleanly and one moved, by changing only what
+See `NOTE.md` for the final wording. In short: one wall fell cleanly and one moved, by changing only what
 the checker tells the model, never what the answer is. Level 3 went from 0 of 15 to 6 of 7 completed runs, with
 every solved kernel inside the chip's rules. Level 4's kernels went from never tiling to tiling the
 contraction, but their 0.75 relies on a tile the harness fails to reject, so the honest level 4 score is

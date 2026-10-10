@@ -26,7 +26,7 @@ the organisers' untouched code. Levels 1, 3 and 4 never varied across them.
 | 2 transpose | 6/15 | 2/5 | 3/5 |
 | 3 matmul, one tile | **0/15** (0.30) | **16/17**: 6/7, then 10/10 in a second batch | **10/10**, faster (4 rounds, not 6) |
 | 4 matmul, tiled | 0.62 | 0.75 as scored; **0.62 with the 128-row rule enforced** | not adopted |
-| 8 attention (untuned) | 0.30 ×4 | 0.30 ×4 | not run |
+| 8 attention (untuned) | 0/5 (0.30) | 0/5 (0.30) | not run |
 
 Level 3, both batches pooled because the level 3 feedback is identical between their commits on all 93 logged
 kernels: seats 153 and 157 (6 of 7), then seats 150 and 158 (10 of 10, every solve in round 6). All 16 solves
