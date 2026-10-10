@@ -173,8 +173,11 @@ class watching:
     report simply leaves the buffer out.
     """
 
-    def __init__(self):
+    def __init__(self, path=None):
         self.buffers, self._keep, self._nl = {}, [], None
+        # (line, shape, buffer) of every on-chip tile allocated with more rows than a tile can
+        # have. See tall().
+        self.tall, self._path = [], path
 
     def __enter__(self):
         try:
@@ -193,6 +196,13 @@ class watching:
                 if name:
                     self.buffers[id(out)] = name
                     self._keep.append(out)      # so the id cannot be reused while we look
+                rows = _shape(out)
+                where = name or ("sbuf" if buf is None else None)   # sbuf is the default buffer
+                if rows and where in ("sbuf", "psum") and rows[0] > _pmax():
+                    caller = sys._getframe(1)
+                    mine = self._path is None or \
+                        os.path.realpath(caller.f_code.co_filename) == os.path.realpath(self._path)
+                    self.tall.append((caller.f_lineno if mine else None, rows, where))
             except Exception:
                 pass
             return out
@@ -204,6 +214,39 @@ class watching:
         if self._nl is not None:
             self._nl.ndarray = self._real
         return False
+
+
+def _pmax():
+    try:
+        import nkibench
+        return nkibench.PMAX
+    except Exception:
+        return 128
+
+
+def tall(watch, source):
+    """The message for an on-chip tile allocated with more rows than a tile can have, or ''.
+
+    Found in the logs, not predicted. Every kernel but one that scored 0.75 on level 4 allocates
+    an SBUF or PSUM tile with 256 or 512 rows and then only ever hands 128-row slices of it to an
+    instruction. The simulator checks the piece an instruction is given, never the tile it was
+    cut from, so those kernels run and their numbers are right. The harness's rule scan does
+    forbid a partition dimension over 128, but it reads the source and can only see a literal
+    number: `nl.ndarray((256, 512), ...)` is caught, `nl.ndarray((K, N), ...)` is not. So the
+    score rewarded a tile the chip does not have. This sees the allocation as it happens, with
+    the real shape, and says so.
+    """
+    seen = getattr(watch, "tall", None)
+    if not seen:
+        return ""
+    line, shape, where = seen[0]
+    at = (f"line {line}, `{statement_at(source, line)}`, allocates" if line
+          else "the kernel allocates")
+    return (f"RUNS ON THE SIMULATOR, NOT ON THE CHIP: {at} a tile in {where} with {shape[0]} "
+            f"rows. A tile on the chip has at most {_pmax()} rows, and slicing it afterwards "
+            f"does not change that: the simulator checks the piece an instruction is given, not "
+            f"the tile it was cut from. Allocate the tile inside the loop with one chunk's rows, "
+            f"and load one chunk into it at a time.")
 
 
 def _shape(val):
@@ -812,7 +855,7 @@ def _run(source, level, case, tag, watch=True):
     with open(path, "w") as f:
         f.write(source)
     args, _ = nkibench.make_inputs(spec["shapes"][case], level)
-    w = watching() if watch else None
+    w = watching(path) if watch else None
     try:
         if w is None:
             out, _ = nkibench.simulate_and_count(nkibench.load_kernel(path, spec["entry"]), args)
@@ -849,6 +892,26 @@ def selftest():
         print("\n  NEEDS THE NEURON SDK: the plants below cannot run here. Run this in the seat pod.")
         return rc
     print(f"\n  simulator: nki {getattr(nki, '__version__', '?')} from {os.path.dirname(nki.__file__)}\n")
+
+    # A tile taller than the chip has, allocated by a symbolic size and never passed whole to an
+    # instruction, so nothing raises. Only the allocation watcher can see it.
+    ref4 = open(os.path.join(here, "reference_level4.py")).read()
+    mark = "  result = nl.ndarray((M, N), dtype=lhsT.dtype, buffer=nl.shared_hbm)\n"
+    hidden = ref4.replace(mark, mark + "  spare = nl.ndarray((K, TILE_M), dtype=lhsT.dtype, "
+                                      "buffer=nl.sbuf)\n")
+    path, err, w, _ = _run(hidden, 4, 1, "tall")
+    said = tall(w, hidden)
+    ok = ref4.count(mark) == 1 and err is None and "`spare = nl.ndarray((K, TILE_M)" in said \
+        and "256 rows" in said
+    path, err0, w0, _ = _run(ref4, 4, 1, "tall0")
+    ok0 = err0 is None and tall(w0, ref4) == ""
+    print(f"  tile taller than the chip, never used whole: the kernel still runs -> "
+          f"{'yes' if err is None else 'NO, it raised ' + type(err).__name__}")
+    print(f"      caught, with its line and real height -> {'ok' if ok else 'FAIL'}")
+    print(f"      {said[:150]}")
+    print(f"      and the untouched reference is not accused -> {'ok' if ok0 else 'FAIL'}")
+    tall_rc = 0 if ok and ok0 else 1
+    print()
 
     # The control. If the untouched references do not run, a plant's failure proves nothing --
     # and watching a simulation must not change what it computes, or the watcher is the bug.
@@ -941,10 +1004,14 @@ def selftest():
                                     "SOMETHING FAILED. Do not use --features origin until this passes."))
     print("In pieces: " + ("every planted case was told to cut." if pieces_rc == 0 else
                            "SOMETHING FAILED. Do not use --features pieces until this passes."))
+    print("Too tall for the chip: " + ("the planted tile was caught and the reference was not."
+                                       if tall_rc == 0 else
+                                       "SOMETHING FAILED. Do not use --features strict until this passes."))
     print("Looking ahead: " + ("every planted case was explained by its later use."
                                if ahead_rc == 0 else
                                "SOMETHING FAILED. Do not use --features ahead until this passes."))
-    return rc | (state_rc << 1) | (origin_rc << 2) | (pieces_rc << 3) | (ahead_rc << 4)
+    return rc | (state_rc << 1) | (origin_rc << 2) | (pieces_rc << 3) | (ahead_rc << 4) \
+        | (tall_rc << 5)
 
 
 def replay(log_path, level=None, features=("locate", "state")):
