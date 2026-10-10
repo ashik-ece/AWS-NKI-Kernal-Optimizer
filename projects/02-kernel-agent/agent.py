@@ -85,7 +85,13 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #            be allocated is told what it is the result of or copied with, and a tile used for
 #            several things is told each needs its own. Where it speaks, the old hint for that
 #            error is not sent, since the hint is what led the model wrong. Implies origin.
-KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes", "ahead"}
+#   strict   fail a kernel that allocates an on-chip tile with more than 128 rows, even when
+#            it only ever uses 128-row slices of it and so runs correctly on the simulator.
+#            The harness's own rule forbids this but can only see a literal number in the
+#            source. This is the one feature that changes a SCORE and not only a message: it
+#            fails kernels the harness passes. Implies state, whose watcher it uses.
+KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes", "ahead",
+                  "strict"}
 FEATURES = set()
 
 # Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
@@ -175,7 +181,7 @@ def _grade(source, level):
         args, _ = nkibench.make_inputs(case, level)
         before = [x.copy() if isinstance(x, np.ndarray) else x for x in args]
         want = spec["ref"](*args)
-        watch = diagnose.watching() if "state" in FEATURES else contextlib.nullcontext()
+        watch = diagnose.watching(path) if "state" in FEATURES else contextlib.nullcontext()
         try:
             with watch:
                 got, counted = nkibench.simulate_and_count(kernel, args)
@@ -183,6 +189,11 @@ def _grade(source, level):
             return (sum(WEIGHTS[k] for k, v in parts.items() if v), parts,
                     f"CANNOT SIMULATE: {e}")
         except Exception as e:
+            if "strict" in FEATURES and getattr(watch, "tall", None):
+                # The tile comes first in the kernel and is the structural mistake; whatever
+                # raised afterwards was raised by a kernel built on it.
+                failures.append((nkibench.label(case, level), diagnose.tall(watch, source)))
+                continue
             raised = f"raised {type(e).__name__}: {e}"
             where = diagnose.where(e, path, source) if "locate" in FEATURES else ""
             state, rules, replaces = (diagnose.state_and_rules(e, path, source, watch,
@@ -208,6 +219,8 @@ def _grade(source, level):
             m = ("CORRECT ON CPU BUT WRONG ON HARDWARE: " + hazards[0]
                  + ". Fix that before anything else -- the simulator agrees with the reference here "
                    "and the device would not.")
+        if "strict" in FEATURES and getattr(watch, "tall", None):
+            m = diagnose.tall(watch, source)
         if m:
             failures.append((nkibench.label(case, level), m))
             continue
@@ -695,7 +708,7 @@ def main():
                  f"{sorted(KNOWN_FEATURES)}")
     if asked & {"pieces", "ahead"}:
         asked.add("origin")
-    if asked & {"facts", "origin", "internal"}:
+    if asked & {"facts", "origin", "internal", "strict"}:
         asked.add("state")
     if "state" in asked:
         asked.add("locate")
