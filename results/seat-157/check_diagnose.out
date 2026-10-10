@@ -62,8 +62,8 @@ Planting known bugs in the reference kernels and checking the located line.
       located  line 77, `nisa.nc_matmul(dst=res_psum, stationary=lhsT_tile, moving=rhs_tile)`
       state   At that line: `res_psum` is (128, 512) in psum; `lhsT_tile` is (128, 128) in sbuf; `rhs_tile` is (128, 1024) in sbuf. The second dimension of moving may be at most 512: it is 1024. The result of nc_matmul has stationary's second dimension as its first and moving's second dimension as its second, and dst must be exactly that shape: dst is (128, 512).
       state reports every planted fact -> ok
-      pieces  sT_tile` is (128, 128) in sbuf; `rhs_tile` is (128, 1024) in sbuf. The second dimension of moving may be at most 512: it is 1024. The result of nc_matmul has stationary's second dimension as its first and moving's second dimension as its second, and dst must be exactly that shape: dst is (128, 512).
-      pieces says to cut, not to resize -> FAIL  missing: ['too large', 'loop over the pieces']
+      pieces  n as its first and moving's second dimension as its second, and dst must be exactly that shape: dst is (128, 512). `rhs_tile` is (128, 1024): its second dimension is 1024, too large, since one nc_matmul takes at most 512 there. Cut that dimension too, at most 512 at a time, and loop over the pieces.
+      pieces says to cut, not to resize -> ok
   result tile with one dimension: ok
       raised   AssertionError: SBUF and PSUM tensors must have at least 2 dimensions (partition-dim and free-dim)
       located  line 60, `result_psum = nl.ndarray((M,), dtype=nl.float32, buffer=nl.psum)`
@@ -89,5 +89,5 @@ Planting known bugs in the reference kernels and checking the located line.
 Located lines: all are the planted ones.
 State on the line: every planted fact was reported.
 Origin of the tile: every planted line was traced.
-In pieces: SOMETHING FAILED. Do not use --features pieces until this passes.
+In pieces: every planted case was told to cut.
 Looking ahead: every planted case was explained by its later use.
