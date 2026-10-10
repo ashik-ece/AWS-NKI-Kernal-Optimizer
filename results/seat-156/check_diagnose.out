@@ -5,6 +5,11 @@ Planting known bugs in the reference kernels and checking the located line.
 
   simulator: nki 0.6.0+31049202112.g85070674 from /opt/conda/lib/python3.13/site-packages/nki
 
+  tile taller than the chip, never used whole: the kernel still runs -> yes
+      caught, with its line and real height -> ok
+      RUNS ON THE SIMULATOR, NOT ON THE CHIP: line 57, `spare = nl.ndarray((K, TILE_M), dtype=lhsT.dtype, buffer=nl.sbuf)`, allocates a tile in sbuf with 25
+      and the untouched reference is not accused -> ok
+
   control: reference level 3 on K=128 M=64 N=512 -> runs
            and gives the same output while watched -> ok  (5 tile allocations seen)
   control: reference level 4 on K=256 M=256 N=1024 -> runs
@@ -76,7 +81,7 @@ Planting known bugs in the reference kernels and checking the located line.
       located  line 56, `nisa.dma_copy(dst=lhs_tile, src=lhsT)`
       state   At that line: `lhs_tile` is (128, 512) in sbuf; `lhsT` is (128, 64) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or broadcast: dst holds 65536 elements and src holds 8192.
       state reports every planted fact -> ok
-      ahead    src holds 8192. `lhs_tile` is the wrong size here: it holds 65536 elements, too large for the 8192 on the other side. It is also used on lines 57, 64 for other data, and one tile cannot hold different things. Allocate a separate tile for each thing it holds, each shaped like what is copied into it.
+      ahead   rc holds 8192. `lhs_tile` is the wrong size here: it holds 65536 elements, too large for the 8192 on the other side. It is also written to on line 57 with other data, and one tile cannot hold different things. Allocate a separate tile for each thing it holds, each shaped like what is copied into it.
       ahead explains the tile by its later use -> ok
   QUESTION, result tile of the wrong shape:
       raised   ValueError: cannot reshape array of size 32768 into shape (1,64)
@@ -90,4 +95,5 @@ Located lines: all are the planted ones.
 State on the line: every planted fact was reported.
 Origin of the tile: every planted line was traced.
 In pieces: every planted case was told to cut.
+Too tall for the chip: the planted tile was caught and the reference was not.
 Looking ahead: every planted case was explained by its later use.
