@@ -28,6 +28,8 @@ as the shape to type in. Nothing here can reject a kernel: it speaks only after 
 has already raised.
 
     python diagnose.py --selftest      # plant known bugs in the reference kernels, check both
+    python diagnose.py --replay LOG    # what the model WOULD have been told, for every failing
+                                       # kernel in an attempt log. Calls no model.
 
 WHAT IS VERIFIED AND WHAT IS NOT. --selftest needs `nki`, so it proves something only where the
 Neuron SDK is installed: run it in the seat pod before trusting a located line. devtools/fake_nki
@@ -45,6 +47,11 @@ import types
 # Marks the located text inside a feedback string, so it can be shown to the model and also
 # removed again. See shown() and key().
 MARK = "\x00"
+
+# where() and state() run inside the grader's error handler, in the middle of a measured run that
+# takes the better part of an hour. A bug in them must cost one sentence of feedback, never the
+# run. So they swallow their own failures and note them here, where --replay reports them.
+ERRORS = []
 
 
 def statement_at(source, lineno, limit=200):
@@ -122,10 +129,14 @@ def locate(exc, path, source=""):
 def where(exc, path, source):
     """'line N, `statement`, ' wrapped in MARK, or '' when the line cannot be found. Empty rather
     than a guess: a wrong line is worse than no line."""
-    n = locate(exc, path, source)
-    if not n:
+    try:
+        n = locate(exc, path, source)
+        if not n:
+            return ""
+        return f"{MARK}line {n}, `{statement_at(source, n)}`, {MARK}"
+    except Exception as e:
+        ERRORS.append(f"where: {type(e).__name__}: {e}")
         return ""
-    return f"{MARK}line {n}, `{statement_at(source, n)}`, {MARK}"
 
 
 def shown(text):
@@ -331,6 +342,14 @@ def _rules(func, ops, limits):
 
 def state(exc, path, source, watch=None, limit=700):
     """' At that line: ...' wrapped in MARK, or '' when there is nothing certain to say."""
+    try:
+        return _state(exc, path, source, watch, limit)
+    except Exception as e:
+        ERRORS.append(f"state: {type(e).__name__}: {e}")
+        return ""
+
+
+def _state(exc, path, source, watch, limit):
     hit = _hit(exc, path, source)
     stmt = _statement_node(source, hit[0]) if hit else None
     if stmt is None:
@@ -559,12 +578,73 @@ def selftest():
     return rc | (state_rc << 1)
 
 
+def replay(log_path, level=None):
+    """Re-grade every distinct failing kernel in an attempt log with the features on.
+
+    Two uses. Before a measured run: the features meet kernels a model really wrote, which are
+    stranger than any plant, and this shows that they cope -- for nothing, since no model is
+    called. After one: the "was told / would add" pairs are the evidence for what changed.
+    """
+    import json
+    import agent
+    agent.CANDIDATE_PATH = "/tmp/_replay_level{level}.py"   # never the path a live run is using
+    groups = {}
+    with open(log_path) as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            if not (r.get("code") or "").strip() or r["reward"] >= 1.0 - 1e-9:
+                continue
+            if level is not None and r["level"] != level:
+                continue
+            groups.setdefault((r["level"], "".join(r["code"].split())), [r, 0])[1] += 1
+    n = dict(kernels=0, crashed=0, located=0, state=0, differs=0)
+    for (lv, _), (r, count) in sorted(groups.items(), key=lambda kv: (kv[0][0], -kv[1][1])):
+        n["kernels"] += 1
+        agent.FEATURES.clear()
+        agent.FEATURES.update({"locate", "state"})
+        try:
+            _, _, marked = agent._grade(r["code"], lv)
+        finally:
+            agent.FEATURES.clear()
+        added = [seg.strip() for seg in re.findall(f"{MARK}(.*?){MARK}", marked, re.S)]
+        crashed = "raised " in key(marked)
+        n["crashed"] += crashed
+        n["located"] += any(seg.startswith("line ") for seg in added)
+        n["state"] += any("At that line" in seg for seg in added)
+        print(f"\nlevel {lv}   {count} attempt(s) were this kernel   reward {r['reward']:.2f}")
+        print("  was told : " + " ".join((r.get("feedback") or "").split())[:300])
+        if not r.get("features") and key(marked) != r.get("feedback"):
+            n["differs"] += 1
+            print("  NOTE     : grading it again gave a different message: "
+                  + " ".join(key(marked).split())[:200])
+        if added:
+            for seg in added:
+                print("  would add: " + seg)
+        else:
+            print("  would add: nothing" + ("" if crashed else
+                                            " (it did not crash inside the kernel)"))
+    print(f"\n{n['kernels']} distinct failing kernels; {n['crashed']} crashed in the simulator; "
+          f"a line was named for {n['located']} of those and the state for {n['state']}.")
+    if n["differs"]:
+        print(f"{n['differs']} graded differently from the log. Grading should be repeatable: "
+              f"look at those before trusting either.")
+    print(f"errors inside the diagnosis itself: {len(ERRORS)}" + ("" if not ERRORS else
+          "\n  " + "\n  ".join(sorted(set(ERRORS)))))
+    return 1 if ERRORS else 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--replay", metavar="LOG.jsonl")
+    ap.add_argument("--level", type=int)
     a = ap.parse_args()
     if a.selftest:
         sys.exit(selftest())
+    if a.replay:
+        sys.exit(replay(a.replay, a.level))
     ap.print_help()
 
 

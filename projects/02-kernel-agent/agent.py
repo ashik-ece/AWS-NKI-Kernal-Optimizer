@@ -63,6 +63,11 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 KNOWN_FEATURES = {"locate", "state"}
 FEATURES = set()
 
+# Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
+# measured run is going on the same machine MUST use another path, or it overwrites the file the
+# run is about to load and the run grades the wrong kernel. diagnose.py --replay does.
+CANDIDATE_PATH = "/tmp/_agent_level{level}.py"
+
 
 def grade(source, level):
     """Returns (reward, parts, feedback, key).
@@ -110,7 +115,7 @@ def _grade(source, level):
     parts["rules"] = True
 
     spec = nkibench.LEVELS[level]
-    path = f"/tmp/_agent_level{level}.py"
+    path = CANDIDATE_PATH.format(level=level)
     with open(path, "w") as f:
         f.write(source)
     try:
