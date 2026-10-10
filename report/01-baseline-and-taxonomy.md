@@ -112,6 +112,72 @@ Solved 2/5. The 3 failing runs went the same way each time: a tile sized `(P, F1
 copy (40 attempts, `src=384, dst=512` then `dst=12`), then an index past the end of a dimension
 (48 attempts, `Out-of-bound access ... index 3 exceed dimension size of 3`), resent unchanged 36/36 times.
 
+## 2b. Failure taxonomy redone under the checker
+
+Same attempts-level counting, now by **the step of the kernel at which the attempt failed**: allocate a
+tile, load an input, matmul, copy the result PSUM -> SBUF, store the output. A checker that works should push
+failures later in the kernel, toward the steps its information is about. Baseline steps are assigned from
+the error type (its messages carry no line number); checker steps come from the line the message names.
+Logs: baseline seat-152; checker `internal,origin` seats 153 + 157 (level 3), 159 (level 4), 150 (level 1);
+`ahead` (`16dcf94`) seats 153 + 157; `pieces` seats 154, 156, 159; `pieces,ahead` seat 151 (partial).
+
+### Level 3: failures moved past the load in most attempts
+
+| Step where it failed | Baseline (84) | Checker (156) | + `ahead` (120) |
+|---|---|---|---|
+| 1 allocate tile (1-D tile, type 3a) | 19 | 19 | 22 |
+| 2 load input (copy into a wrongly shaped tile, 3b-3d) | **65** | 37 | 14 |
+| 3 matmul (PSUM tile not shaped `(M, N)`) | 0 | 48 | 8 |
+| 4 result PSUM -> SBUF (into an input's tile) | 0 | 28 | 32 |
+| 5 store output (1-D output tensor) | 0 | 24 | 32 |
+| 6 name not defined (new, see below) | 0 | 0 | 12 |
+| **Got past the load** | **0%** | **64%** | **70%** |
+
+- The baseline never got past loading the inputs. Under the checker, two thirds of failing attempts reached the
+  matmul or later, and the 3b/3c/3d types (copy into one scratch tile or an output-shaped tile) fell from
+  65 to 37, then to 14 with `ahead`. That is the direction of what `origin` adds: the line that set the tile's
+  shape.
+- The root of type 3a is still there: `lhsT.shape[1:]` (a 1-D output) is in 62/84 baseline, 89/156 checker
+  and 118/120 `ahead` failing attempts. The checker gets the model past it one step at a time; the output
+  shape is the last thing fixed, which is why every solve takes several rounds.
+- **New, checker-induced:** 12 `ahead` attempts fail with `name 'sbuf_tile' is not defined`: told to
+  "allocate a separate tile for each thing it holds", the model renamed a tile and left one use behind.
+- Type 3d (following the "(1, N)" hint) fell from 16 attempts to 8 under the checker.
+
+### Level 4: failures moved from the load to the matmul
+
+| Step where it failed | Baseline (80) | Checker (120) | `pieces` (140) | `pieces,ahead` (52, partial) |
+|---|---|---|---|---|
+| 2 load input (partition 256: no tiling, 4a) | **70** | 15 | 27 | 17 |
+| 3 matmul | 0 | **101** | 35 | 25 |
+| 4 result PSUM -> SBUF | 10 | 4 | **69** | 9 |
+| other | 0 | 0 | 9 | 1 |
+| Failing kernels with a loop | 1 | **104** | 103 | 26 |
+
+- Type 4a (no tiling) went from 70 of 80 to 15 of 120: the model now tiles K. Under the checker it fails at
+  the matmul: 80 on "stationary free dimension > 128" (M per tile), 20 on "contraction > 128". That is the
+  0.62 -> 0.75 step: the next rule (M <= 128 per tile) is the wall now.
+- `pieces` moves the failure one step further (69 at the PSUM -> SBUF copy, which has 256 rows) without
+  changing the score, 0.75.
+- `pieces,ahead` explains its regression to 0.62: only 26 of 52 failing kernels loop, against 104 of 120
+  under the checker. Told the loaded tile "is also used for other data", the model split tiles and dropped
+  the loop. This is what `11fbb86` targets.
+
+### Level 1: the root type did not move
+
+| | Baseline (160) | Checker (160) | Checker + `pieces,shapes` (160) |
+|---|---|---|---|
+| Uses `nc_matmul` to "average" | 160 | 152 | 60 |
+| Scales by `0.5` instead of `1/p^2` | 160 | 160 | 160 |
+| Uses `nl.sum` or `.ap()` (the reference method) | 0 | 0 | 0 |
+
+The wrong algorithm is untouched by any feedback flag: every attempt in every condition scales by 0.5, and none
+reduces with `nl.sum`. The surface errors shuffle (`tensor_scalar_multiply`, `tensor_reduce_sum`, `op=`
+instead of `op0=`), but they are names the model invents for the same plan. The false message "`nki.isa` has
+no `multiply`, and nothing similar exists" (real name: `nl.multiply`) still appears in 40 checker attempts and
+41 `pieces,shapes` attempts; it comes from `agent.py` line 299, which the memo flagged and no commit has
+changed. Level 1 needs information the checker cannot give from an error: the algorithm (prompt change C).
+
 ## 3. Hypothesis verdicts
 
 **H1 - Levels 1 and 3 do not fail because of tiling. CONFIRMED.** Level 3: 0 of 84 attempts contain a loop;

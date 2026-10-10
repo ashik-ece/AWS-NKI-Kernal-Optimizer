@@ -85,7 +85,13 @@ advice everywhere (`facts`) lost level 4, because for the simulator's own checks
   check, so the checker never sees the algorithm. All 10 checker runs on level 1 open with the same five API
   errors as the baseline.
 
-Full taxonomy with examples: `report/01-baseline-and-taxonomy.md`.
+**Under the checker the failures moved where its information points.** Level 3: the baseline never got past
+loading the inputs (0 of 84 failing attempts); with `internal,origin` 64% of failing attempts got to the matmul
+or later, 70% with `ahead`. Level 4: "never tiles" fell from 70 of 80 to 15 of 120 failing attempts, and 101 now
+fail at the matmul on the next rule (M per tile <= 128). Level 1: unchanged; every attempt in every condition
+still scales by 0.5 and none uses `nl.sum`.
+
+Full taxonomy with examples: `report/01-baseline-and-taxonomy.md` (section 2b for the checker runs).
 
 ## Caveats we measured
 
