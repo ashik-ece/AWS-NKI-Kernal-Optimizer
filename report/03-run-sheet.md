@@ -122,6 +122,21 @@ stationary free dimension > 128). Replays of feedback (`results/replay-*.txt`): 
 between `39b8e5a` and `16dcf94` under `internal,origin`, and 0 between the organisers' code and `16dcf94`
 with no flags; both were run on the stand-in simulator.
 
+### 15:40 pull (`30bd03e`, PR #15): rest of the `16dcf94` runs, and `ahead` narrowed (`11fbb86`)
+
+| Log | Flags | Completed runs | Result (rounds to solve) |
+|---|---|---|---|
+| seat-157 `a-l3` | internal,origin,ahead | 4 of 5 | 4/4 solved (4, 7, 4, 4) |
+| seat-158 `pa-l3` | internal,origin,pieces,ahead | 3 of 4 started | 3/3 solved (4, 7, 7) |
+| seat-150 `a-l2` | internal,origin,ahead | 5 of 5 | 3/5 (0.30, 0.50, 1, 1, 1): noise range |
+| seat-151 `pa-r16-l4` | internal,origin,pieces,ahead, 16 rounds | 1 of 2 started | **0.62**, regressed from 0.75 |
+
+`ahead` on level 3, pooled over seats 153 and 157: 8/8 solved, 7 in 4 rounds, 1 in 7 (all 10 solves
+without `ahead` took 6). `11fbb86` changes `ahead` so it counts only later writes, after the level 4
+regression. Replay `16dcf94` vs `11fbb86` on the stand-in simulator, 303 kernels from 30 logs:
+`internal,origin` differs on 0; `internal,origin,ahead` differs on 77 (L1 1, L2 47, L3 20, L4 9). So
+`ahead` runs on `11fbb86` must be logged as a separate condition.
+
 Other rows in `RUNS.tsv` since 14:29: `cand-*` on `d761cd0` (pieces, shapes) are in progress, and
 `base-r16-l4` / `cand-r16-l4` use `--rounds 16`, a deliberate pair outside the frozen settings that is
 only comparable with each other.
