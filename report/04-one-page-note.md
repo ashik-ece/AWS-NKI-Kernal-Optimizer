@@ -31,17 +31,19 @@ gives identical feedback (`results/replay-internal-origin-39b8e5a-vs-16dcf94.txt
 laptop stand-in simulator, so it shows the code takes the same path through the same errors, not that those
 errors are the real simulator's.
 
-| Level | Baseline (15 runs) | Checker `internal,origin` | TODO: `ahead` / `pieces` | Prompt C, short (level 1) |
+| Level | Baseline (15 runs) | Checker `internal,origin` | + `ahead` / + `pieces` (`16dcf94`, partial at 15:33) | Prompt C, short (level 1) |
 |---|---|---|---|---|
-| 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | n/a | 0/5, always 0.30 (failure type moved; TODO verify) |
-| 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | TODO | n/a |
-| 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | TODO | n/a |
-| 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** | TODO | n/a |
+| 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | not run | 0/5, always 0.30 (failure type moved; TODO verify) |
+| 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | TODO (`ahead`, seat 150) | n/a |
+| 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | `ahead`: **4/4 completed, each in 4 rounds** (run 5 in progress) | n/a |
+| 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** | `pieces`: 0.75 in 3/3 completed runs (8 and 16 rounds) | n/a |
 
 An eighth level 3 run (seat 157, run 3) stopped after round 3 with no error and no summary line; every solving
 run was also still at 0.30 at round 3, so it says nothing either way. Counted as unsolved, the figure is 6 of 8.
-**Every one of the 10 level 3 solves we have took exactly 6 rounds**, which makes rounds-to-solve a low-noise
-measure for comparing checker variants. The solves came by **two different paths** (seat 153: runs 1, 2, 4
+**Every one of the 10 level 3 solves without `ahead` took exactly 6 rounds**, which makes rounds-to-solve a
+low-noise measure for comparing checker variants. **With `ahead` added, all 4 completed solves took 4 rounds**
+(seat 153, `16dcf94`). The narrowed `pieces` alone on level 4 neither helps nor regresses: it stays at 0.75, unlike
+`pieces,shapes` (`d761cd0`), which fell back to 0.62. The solves came by **two different paths** (seat 153: runs 1, 2, 4
 share one; run 5 starts from a different kernel). Level 2 moves between 1/5 and 3/5 in
 every condition, baselines included: that is noise, not an effect.
 

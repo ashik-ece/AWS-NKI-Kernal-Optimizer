@@ -106,6 +106,22 @@ from now on does, including checker runs. Such runs must be labelled "checker + 
 result from them cannot be credited to the checker. If it stays, the note must quote the hint verbatim and
 say it gives the model the reference algorithm.
 
+### 15:33 pull (`e780bf9`): `ahead` and `pieces` on `16dcf94`, partial
+
+| Log | Flags | Completed runs | Result |
+|---|---|---|---|
+| seat-153 `a-l3` | internal,origin,ahead | 4 of 5 | 4/4 solved, **each after 4 rounds** (all 10 earlier solves took 6) |
+| seat-154 `p-l4` | internal,origin,pieces | 1 of 5 | 0.75 |
+| seat-156 `p-r16-l4` | internal,origin,pieces, 16 rounds | 1 of 5 | 0.75 after 7 rounds (gave up on repeats) |
+| seat-159 `p-r16-l4` | internal,origin,pieces, 16 rounds | 1 of 5 | 0.75 after 7 rounds |
+
+Not yet pulled: `a-l2` (150), `pa-l3` (158), `pa-r16-l4` (151), and `a-l3` on 157 (`RUNS.tsv` lists it
+on both 153 and 157). `pieces` alone holds level 4 at 0.75, so the `d761cd0` regression came from `shapes`,
+the combination, or the wider version of `pieces` that `16dcf94` narrowed. Level 4 still stalls on the same rules (partition > 128 on the copy, then the
+stationary free dimension > 128). Replays of feedback (`results/replay-*.txt`): 235 kernels, 0 differences
+between `39b8e5a` and `16dcf94` under `internal,origin`, and 0 between the organisers' code and `16dcf94`
+with no flags; both were run on the stand-in simulator.
+
 Other rows in `RUNS.tsv` since 14:29: `cand-*` on `d761cd0` (pieces, shapes) are in progress, and
 `base-r16-l4` / `cand-r16-l4` use `--rounds 16`, a deliberate pair outside the frozen settings that is
 only comparable with each other.
