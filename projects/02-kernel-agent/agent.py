@@ -23,6 +23,7 @@ Every attempt is appended to a JSONL file with its reward, so the log is the del
 """
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -32,6 +33,7 @@ import time
 
 import numpy as np
 
+import diagnose
 import nkibench
 
 MODEL = os.environ.get("KERNEL_AGENT_MODEL", "Qwen/Qwen3-8B")
@@ -51,8 +53,31 @@ REASONING_KEYS = ("reasoning", "reasoning_content")
 
 WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 
+# Checker features that are OFF unless asked for with --features. A run without the flag is the
+# unmodified loop, and a run with one is that loop plus exactly that change -- so two runs can be
+# compared and the difference attributed. One feature per measured run.
+#
+#   locate   name the line of the kernel that was executing when the simulator raised
+#   state    also say what was true on that line: the shape and buffer of every tile it names,
+#            and any rule those shapes break. Implies locate, since "that line" needs naming.
+KNOWN_FEATURES = {"locate", "state"}
+FEATURES = set()
+
 
 def grade(source, level):
+    """Returns (reward, parts, feedback, key).
+
+    `feedback` is what the model is sent. `key` is the same text without the located line, which
+    is exactly what a run without --features would have produced. The loop counts repeats and
+    builds its ledger from `key`, so naming the line changes what the model is TOLD and nothing
+    about when the loop stops or escalates. Otherwise a level could move because it was given
+    more rounds, and the measurement could not tell that from the feedback being better.
+    """
+    reward, parts, text = _grade(source, level)
+    return reward, parts, diagnose.shown(text), diagnose.key(text)
+
+
+def _grade(source, level):
     """Returns (reward, parts, feedback). Feedback is an INSTRUCTION, never just a verdict."""
     parts = dict(parses=False, rules=False, runs=False, correct=False)
 
@@ -119,14 +144,18 @@ def grade(source, level):
         args, _ = nkibench.make_inputs(case, level)
         before = [x.copy() if isinstance(x, np.ndarray) else x for x in args]
         want = spec["ref"](*args)
+        watch = diagnose.watching() if "state" in FEATURES else contextlib.nullcontext()
         try:
-            got, counted = nkibench.simulate_and_count(kernel, args)
+            with watch:
+                got, counted = nkibench.simulate_and_count(kernel, args)
         except nkibench.NkiMissing as e:
             return (sum(WEIGHTS[k] for k, v in parts.items() if v), parts,
                     f"CANNOT SIMULATE: {e}")
         except Exception as e:
+            where = diagnose.where(e, path, source) if "locate" in FEATURES else ""
+            state = diagnose.state(e, path, source, watch) if "state" in FEATURES else ""
             failures.append((nkibench.label(case, level),
-                             enrich(f"raised {type(e).__name__}: {e}")))
+                             where + enrich(f"raised {type(e).__name__}: {e}") + state))
             continue
         parts["runs"] = True
         m = (nkibench.check_inputs_untouched(before, args)
@@ -501,11 +530,13 @@ def solve(a, level, log):
         graded = []
         for reply in replies:
             src = extract_code(reply)
-            reward, parts, feedback = grade(src, level)
-            graded.append((reward, src, feedback, parts))
+            reward, parts, feedback, key = grade(src, level)
+            graded.append((reward, src, feedback, parts, key))
             log.write(json.dumps(dict(level=level, round=rnd, reward=reward, parts=parts,
                                       prompt_chars=len(prompt), reply_chars=len(reply),
-                                      code=src, feedback=feedback)) + "\n")
+                                      code=src, feedback=feedback,
+                                      rep=getattr(a, "rep", 0),
+                                      features=sorted(FEATURES))) + "\n")
         log.flush()
         graded.sort(key=lambda g: g[0], reverse=True)
         top = graded[0]
@@ -517,7 +548,7 @@ def solve(a, level, log):
         # stuck at 0.10 for four rounds while the prompt still carried the 0.50 code.
         if (top[1] or "").strip():
             latest = (top[1], top[2])
-        same = top[2] == (tried[-1] if tried else None)
+        same = top[4] == (tried[-1] if tried else None)
         if same:
             # Collapse. Fifteen identical multi-line blocks is noise, not information.
             print(f"round {rnd}: same failure again ({top[0]:.2f}, best so far {best[0]:.2f})")
@@ -531,18 +562,18 @@ def solve(a, level, log):
             print(textwrap.indent(top[1], "  "))
             print("  -------------------------------------------")
             return top[0], rnd + 1
-        seen[top[2]] = seen.get(top[2], 0) + 1
+        seen[top[4]] = seen.get(top[4], 0) + 1
         streak = streak + 1 if same else 1
-        if seen[top[2]] >= a.give_up_after:
+        if seen[top[4]] >= a.give_up_after:
             how = ("the identical failure %d rounds running" % streak if streak >= a.give_up_after
                    else "this failure for the %dth time, alternating with %d other(s)"
-                        % (seen[top[2]], len(seen) - 1))
+                        % (seen[top[4]], len(seen) - 1))
             print(f"  STOPPING this level: {how}. The agent is cycling between a fixed set of "
                   f"mistakes rather than converging, so more rounds will not help. Failures seen:")
             for f, n in sorted(seen.items(), key=lambda kv: -kv[1]):
                 print(f"    {n}x  {f[:110]}")
             return best[0], rnd + 1
-        tried.append(top[2])
+        tried.append(top[4])
         repeats = streak
         if repeats >= 2 and (best[1] or "").strip():
             # Sampling on this endpoint is greedy, so an unchanged prompt returns an unchanged
@@ -596,7 +627,19 @@ def main():
     ap.add_argument("--think", action="store_true",
                     help="let the model reason first; costs budget, and it ran out")
     ap.add_argument("--offline", action="store_true")
+    ap.add_argument("--features", default="",
+                    help="comma-separated checker features to switch on. None by default, so a "
+                         "plain run is the unmodified loop. Known: " + ", ".join(sorted(KNOWN_FEATURES)))
     a = ap.parse_args()
+
+    asked = {f.strip() for f in a.features.split(",") if f.strip()}
+    if asked - KNOWN_FEATURES:
+        sys.exit(f"unknown --features {sorted(asked - KNOWN_FEATURES)}. Known: "
+                 f"{sorted(KNOWN_FEATURES)}")
+    if "state" in asked:
+        asked.add("locate")
+    FEATURES.update(asked)
+    print(f"features {sorted(FEATURES) or 'none'}")
 
     if not a.offline:
         # Validate before the first request. An empty or scheme-less value produces a hostname
@@ -626,6 +669,7 @@ def main():
 
     with open(a.log, "a") as log:
         for rep in range(a.repeat):
+            a.rep = rep
             if a.repeat > 1:
                 print(f"\n################ run {rep + 1} of {a.repeat} ################")
             results = []
