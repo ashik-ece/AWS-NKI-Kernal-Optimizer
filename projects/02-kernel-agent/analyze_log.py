@@ -105,22 +105,24 @@ def features_of(code):
 def load(path):
     """Group the flat log into runs -> rounds -> samples.
 
-    Older logs carry no run number, so a run of a level is recovered from the order: the log is
-    written level by level, and a level's round counter restarting means the next run began.
+    Newer logs carry the run number (`rep`) and it is used. Older ones do not, so there a run of a
+    level is recovered from the order: the log is written level by level, and a level's round
+    counter restarting means the next run began. Order alone cannot split two runs that each
+    ended on round 0 -- a level solved first time, twice running -- which is why `rep` exists.
     """
-    episodes, current, last = [], None, (None, None)
+    episodes, current, last = [], None, (None, None, None)
     with open(path) as fh:
         for line in fh:
             line = line.strip()
             if not line:
                 continue
             r = json.loads(line)
-            level, rnd = r["level"], r["round"]
-            if current is None or level != last[0] or rnd < last[1]:
+            level, rnd, rep = r["level"], r["round"], r.get("rep")
+            if current is None or level != last[0] or rnd < last[1] or rep != last[2]:
                 current = dict(level=level, rounds=defaultdict(list))
                 episodes.append(current)
             current["rounds"][rnd].append(r)
-            last = (level, rnd)
+            last = (level, rnd, rep)
     for ep in episodes:
         ep["rounds"] = [ep["rounds"][k] for k in sorted(ep["rounds"])]
         ep["best"] = max(s["reward"] for rnd in ep["rounds"] for s in rnd)
