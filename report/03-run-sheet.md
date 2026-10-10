@@ -51,7 +51,33 @@ Every message states a relation between two named tiles and where the wrong shap
 shape to write. Round 0 is the old hint misleading the model, exactly as in the baseline; removing it would
 probably save a round.
 
-Still to pull: `state-all` (157), `facts-all` (159), `facts-l3` (151), and the rest of the `checker-*` runs.
+### 14:33 pull: complete 5-run results
+
+| Level | Baselines (152 + 154 + 158) | Full checker `39b8e5a` | Seat |
+|---|---|---|---|
+| 1 | 0/14, 0.30 every run | 0/3 (partial) | 150 |
+| 3 | 0/13, 0.30 every run | **4/5 solved**, all=[1.0, 1.0, 0.3, 1.0, 1.0], mean 0.86 | 153 |
+| 3 (repeat) | | 2/3 so far, all=[1.0, 1.0, 0.3] (commit `ec306f1`) | 157 |
+| 4 | 0/13, 0.62 every run | 0/5, **0.75 every run** | 159 |
+| 4 (`state` only) | | 0/5, 0.75 every run | 156 |
+
+Level 3 trajectories under the full checker (letters = failure each round, D = solved):
+runs 1, 2, 4 `E B B C A D`; run 5 `A A B C A D`; run 3 `A A A A A` (not solved).
+So the solves came by **two distinct paths**, not one path repeated: run 5 started from a different kernel
+and still converged. The repeat on seat 157 reproduces the pattern on a second chip.
+
+### Prompt change C is now in `dev` (`ce61bac`, merged via PR #10)
+
+It is always on for level 1 (no feature flag), and it is the **detailed** version: it tells the model
+"Use this exact plan", `.ap(...)`, `nl.sum(..., axis=[3, 4])`, and `1.0 / (pool_size * pool_size)`.
+No run in `RUNS.tsv` so far includes it (all commits predate it), but any level-1 run launched from `dev`
+from now on does, including checker runs. Such runs must be labelled "checker + prompt C", and a level-1
+result from them cannot be credited to the checker. If it stays, the note must quote the hint verbatim and
+say it gives the model the reference algorithm.
+
+Other rows in `RUNS.tsv` since 14:29: `cand-*` on `d761cd0` (pieces, shapes) are in progress, and
+`base-r16-l4` / `cand-r16-l4` use `--rounds 16`, a deliberate pair outside the frozen settings that is
+only comparable with each other.
 
 Reading rules: levels 1, 3 and 4 never varied in any baseline (17 runs at level 1 alone), so any change there
 is a real effect of the condition. Because the model is near-deterministic, the failure *type* must also move
