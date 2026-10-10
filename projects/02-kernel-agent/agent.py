@@ -90,8 +90,10 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #            The harness's own rule forbids this but can only see a literal number in the
 #            source. This is the one feature that changes a SCORE and not only a message: it
 #            fails kernels the harness passes. Implies state, whose watcher it uses.
+#   names    for a name that is not defined, list the tensors that do exist at that line and
+#            say what the missing one is needed for. Implies state.
 KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes", "ahead",
-                  "strict"}
+                  "strict", "names"}
 FEATURES = set()
 
 # Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
@@ -199,7 +201,8 @@ def _grade(source, level):
             state, rules, replaces = (diagnose.state_and_rules(e, path, source, watch,
                                                                origin="origin" in FEATURES,
                                                                pieces="pieces" in FEATURES,
-                                                               ahead="ahead" in FEATURES)
+                                                               ahead="ahead" in FEATURES,
+                                                               names="names" in FEATURES)
                                       if "state" in FEATURES else ("", 0, False))
             drop = rules and ("facts" in FEATURES
                               or ("internal" in FEATURES and not isinstance(e, AssertionError))
@@ -708,7 +711,7 @@ def main():
                  f"{sorted(KNOWN_FEATURES)}")
     if asked & {"pieces", "ahead"}:
         asked.add("origin")
-    if asked & {"facts", "origin", "internal", "strict"}:
+    if asked & {"facts", "origin", "internal", "strict", "names"}:
         asked.add("state")
     if "state" in asked:
         asked.add("locate")
