@@ -10,8 +10,9 @@ seat, commit, flags).
 The organisers' agent sat at fixed scores: 0.30 on level 1, 0.30 on level 3, 0.62 on level 4. Their reading
 was that the model does not understand tiling. On level 3 it was something else: **the checker described the
 simulator's crash instead of the kernel's mistake, and twice told the model to do the wrong thing.** Changing
-only what the checker says, never the answer, took level 3 from 0 of 15 runs to **[18:00: N of M]** runs, on
-four chips. Level 4 did not truly move, and level 1 fails on the algorithm, which no checker message can reach.
+only what the checker says, never the answer, took level 3 from 0 of 15 runs to **16 of 17 completed runs**,
+on four chips, every solve within the chip's rules. Level 4 did not truly move, level 1 stayed at 0.30 even
+with the full recipe in the prompt, and nothing transferred to an untuned level (attention).
 
 ## What we ran
 
@@ -23,17 +24,22 @@ the organisers' untouched code. Levels 1, 3 and 4 never varied across them.
 |---|---|---|---|
 | 1 avg pooling | 0/15 (0.30) | 0/5 (0.30) | not run |
 | 2 transpose | 6/15 | 2/5 | 3/5 |
-| 3 matmul, one tile | **0/15** (0.30) | **[18:00: 6/7 + checker-l3c]** | **10/10**, faster (4 rounds, not 6) |
+| 3 matmul, one tile | **0/15** (0.30) | **16/17**: 6/7, then 10/10 in a second batch | **10/10**, faster (4 rounds, not 6) |
 | 4 matmul, tiled | 0.62 | 0.75 as scored; **0.62 with the 128-row rule enforced** | not adopted |
-| 8 attention (untuned) | [18:00] | [18:00] | not run |
+| 8 attention (untuned) | 0.30 ×4 | 0.30 ×4 | not run |
 
-A one-sentence prompt hint on level 1 ("a per-window sum followed by a scale; no matrix multiplication")
-scored 0/5 but **fixed the algorithm**: matrix multiply in 0 of 104 attempts (baseline 160 of 160), `nl.sum`
+Level 3, both batches pooled because the level 3 feedback is identical between their commits on all 93 logged
+kernels: seats 153 and 157 (6 of 7), then seats 150 and 158 (10 of 10, every solve in round 6). All 16 solves
+keep every tile within 128 rows and return from HBM. An eighth early run stopped at round 3 with no result;
+counted as unsolved, the figure is 16 of 18.
+
+A two-sentence prompt hint on level 1 ("Average pooling is a per-window sum followed by a scale; it needs no
+matrix multiplication. Use a strided view of pooling windows and nl.sum for the reduction.") scored 0/5 but **fixed the algorithm**: matrix multiply in 0 of 104 attempts (baseline 160 of 160), `nl.sum`
 in 103 (the harness on that seat was not verified for this run; the finding is in the code, not the score). Given the full recipe instead (strided `.ap()` view, `nl.sum`, scale by `1/(p*p)`), it followed it in
 100 of 100 attempts and still scored 0/5: 80 attempts failed copying the input into a fixed `(C, 128, 128)`
 tile, the same tile-sizing error as level 3, answered with the same misleading `128x512` example. So level 1
-is blocked by the error level 3's checker fixes, not only by the algorithm. With the checker as well:
-**[18:00: hint-checker-l1, 16 rounds]**.
+is blocked by the error level 3's checker fixes, not only by the algorithm. With the checker added to the
+recipe (16 rounds): still 0.30 in all 5 runs.
 
 ## What made level 3 move
 
@@ -84,8 +90,9 @@ are `multiply`, and the agent's hint says nothing similar exists; it is `nl.mult
 - **The model is near-deterministic:** five baseline runs gave identical kernels. So we credit a change only
   when the failure type also moves toward what the new message said.
 - **Every flag set is reported**, including the losers: `pieces`, `pieces,shapes`, fixed `ahead`, `names`
-  [18:00], and the 16-round `example` group [18:00]. A flag is adopted only if it is better where it aims and
-  no worse elsewhere.
+  [names: TBD], and `example` (a worked tiling example in the repair prompt, 16 rounds, with the 128-row rule
+  enforced): 2 of 14 runs reached a chip-valid 0.75 on level 4 (K tiled correctly, then failing at M = 256).
+  A flag is adopted only if it is better where it aims and no worse elsewhere.
 - **Simulator only.** It also accepts a result returned from PSUM; we checked every solve, and all checker
   and first-`ahead` solves return from HBM.
 - **Pooling across commits** only where a replay of every logged kernel gives identical feedback.
@@ -94,10 +101,11 @@ are `multiply`, and the agent's hint says nothing similar exists; it is `nl.mult
 
 ## Conclusion
 
-One wall fell cleanly. Level 3 went from 0 of 15 to [18:00] of [18:00] runs, every solve within the chip's
-rules, by changing only what the checker says. Level 4's kernels learned to tile, but their higher score
+One wall fell cleanly. Level 3 went from 0 of 15 to 16 of 17 completed runs on four chips, every solve within
+the chip's rules, by changing only what the checker says. Level 4's kernels learned to tile, but their higher score
 depends on a tile the harness fails to reject, so honestly it is still 0.62. Level 1 needs the algorithm and then
-the same tile fix as level 3: one sentence of prompt fixed the method, and the full recipe was followed
-exactly, but both stalled on the tile-sizing error. The largest lesson: the existing
+the same tile fix as level 3: a two-sentence hint fixed the method, and the full recipe was
+followed exactly, but both stalled on the tile-sizing error, and adding the checker did not get past it.
+Nothing transferred to attention, which nobody tuned. The largest lesson: the existing
 feedback was not just vague but misleading, and what fixed it was telling the model which tile is wrong, in
 which dimension, which way, and where it was allocated; naming the failing line alone did nothing.
