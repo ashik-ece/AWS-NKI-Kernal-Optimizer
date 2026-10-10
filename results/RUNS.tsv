@@ -37,3 +37,7 @@ started	seat	name	features	commit	args
 2026-10-10 15:40	158	a2-l3	internal,origin,ahead	11fbb86	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
 2026-10-10 15:52	154	strict-l4	internal,origin,strict	c349ec2	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
 2026-10-10 15:52	156	strict-r16-l4	internal,origin,strict	c349ec2	--level 4 --rounds 16 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:14	158	n-l3	internal,origin,ahead,names	2d87250	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:14	150	n-l3	internal,origin,ahead,names	2d87250	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:14	153	n-l4	internal,origin,ahead,names	2d87250	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:14	157	n-l2	internal,origin,ahead,names	2d87250	--level 2 --rounds 8 --samples 4 --context 8192 --repeat 5

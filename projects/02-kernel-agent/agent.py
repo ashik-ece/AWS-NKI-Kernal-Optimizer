@@ -92,8 +92,14 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #            fails kernels the harness passes. Implies state, whose watcher it uses.
 #   names    for a name that is not defined, list the tensors that do exist at that line and
 #            say what the missing one is needed for. Implies state.
+#   example  when the checker has just reported a tile too tall for the chip, add a worked
+#            example of tiling to that repair prompt -- a COPY, not this operation -- and ask
+#            for a rewrite rather than a one-line change. The repo tried a chunked-copy
+#            example in the FIRST prompt of every level and reverted it: it made everything
+#            worse. This shows it only on the error it answers. A prompt change, not a
+#            checker change, and it must be reported as one.
 KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes", "ahead",
-                  "strict", "names"}
+                  "strict", "names", "example"}
 FEATURES = set()
 
 # Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
@@ -505,6 +511,47 @@ def repair_prompt(level, source, feedback):
         f"ONE python code block.")
 
 
+# A different operation on purpose: it carries the structure -- loops over pieces, one tile per
+# piece allocated INSIDE the loops, the matching slice read and written -- and nothing about
+# matmul. `diagnose.py --selftest` runs it on the simulator: an example that is wrong, or that
+# itself allocates a tile too tall, would teach the mistake.
+TILING_EXAMPLE = """import nki
+import nki.isa as nisa
+import nki.language as nl
+
+@nki.jit
+def copy_in_pieces(a):
+    rows, cols = a.shape
+    out = nl.ndarray((rows, cols), dtype=a.dtype, buffer=nl.shared_hbm)
+    for i in nl.affine_range(rows // 128):          # pieces of at most 128 rows
+        for j in nl.affine_range(cols // 512):      # pieces of at most 512 columns
+            # ONE piece, allocated inside the loops. Never a tile for the whole tensor.
+            tile = nl.ndarray((128, 512), dtype=a.dtype, buffer=nl.sbuf)
+            nisa.dma_copy(dst=tile, src=a[i * 128:(i + 1) * 128, j * 512:(j + 1) * 512])
+            nisa.dma_copy(dst=out[i * 128:(i + 1) * 128, j * 512:(j + 1) * 512], src=tile)
+    return out
+"""
+
+TOO_TALL = ("RUNS ON THE SIMULATOR, NOT ON THE CHIP", "is too tall:")
+
+
+def repair(level, source, feedback):
+    """repair_prompt, and with --features example the worked tiling example as well, but only
+    when the checker has just said a tile is too tall for the chip."""
+    prompt = repair_prompt(level, source, feedback)
+    one_change = "Change exactly what the checker names and keep everything else identical."
+    if "example" not in FEATURES or not any(t in feedback for t in TOO_TALL) \
+            or one_change not in prompt:
+        return prompt
+    return prompt.replace(
+        one_change,
+        "A different number will not fix this; the kernel needs a different structure. Handle "
+        "the data in pieces, with every on-chip tile allocated inside the loops and holding one "
+        "piece. This kernel copies a tensor that way. It is a different operation, shown only "
+        f"for its structure:\n\n```python\n{TILING_EXAMPLE}```\n\nRewrite your kernel with that "
+        "structure, keeping what it computes.")
+
+
 CODE_BLOCK = re.compile(r"```(?:python)?\s*(.*?)```", re.S)
 
 
@@ -653,7 +700,7 @@ def solve(a, level, log):
             # answer. Measured: the same TypeError 19 rounds running. Changing the prompt is the
             # only thing that can change the answer, so say what has already been tried.
             ledger = "\n".join(f"- {t[:160]}" for t in dict.fromkeys(tried))
-            prompt = (repair_prompt(level, latest[0], latest[1])
+            prompt = (repair(level, latest[0], latest[1])
                       + f"\n\nThese approaches have already failed, so do something different:\n"
                         f"{ledger}")
             print(f"  same failure {repeats}x — adding a ledger of {len(set(tried))} failed "
@@ -667,7 +714,7 @@ def solve(a, level, log):
             prompt = first_prompt(level, terse)
             print(f"  no code yet, so re-asking with a shorter prompt (terseness {terse})")
         else:
-            prompt = repair_prompt(level, latest[0], latest[1])
+            prompt = repair(level, latest[0], latest[1])
     print(f"  not solved in {a.rounds} rounds; best reward {best[0]:.2f}")
     return best[0], a.rounds
 

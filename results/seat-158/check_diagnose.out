@@ -5,6 +5,11 @@ Planting known bugs in the reference kernels and checking the located line.
 
   simulator: nki 0.6.0+31049202112.g85070674 from /opt/conda/lib/python3.13/site-packages/nki
 
+  tile taller than the chip, never used whole: the kernel still runs -> yes
+      caught, with its line and real height -> ok
+      RUNS ON THE SIMULATOR, NOT ON THE CHIP: line 57, `spare = nl.ndarray((K, TILE_M), dtype=lhsT.dtype, buffer=nl.sbuf)`, allocates a tile in sbuf with 25
+      and the untouched reference is not accused -> ok
+
   control: reference level 3 on K=128 M=64 N=512 -> runs
            and gives the same output while watched -> ok  (5 tile allocations seen)
   control: reference level 4 on K=256 M=256 N=1024 -> runs
@@ -78,6 +83,13 @@ Planting known bugs in the reference kernels and checking the located line.
       state reports every planted fact -> ok
       ahead   rc holds 8192. `lhs_tile` is the wrong size here: it holds 65536 elements, too large for the 8192 on the other side. It is also written to on line 57 with other data, and one tile cannot hold different things. Allocate a separate tile for each thing it holds, each shaped like what is copied into it.
       ahead explains the tile by its later use -> ok
+  a tile used under a name nothing assigns: ok
+      raised   NameError: name 'result_sb' is not defined
+      located  line 69, `nisa.tensor_copy(dst=result_sb, src=result_psum)`
+      state   At that line: `result_psum` is (64, 512) in psum.
+      state reports every planted fact -> ok
+      names    `lhsT` (128, 64) in HBM (an input), `rhs` (128, 512) in HBM (an input), `result` (64, 512) in HBM, `lhs_tile` (128, 64) in sbuf, `rhs_tile` (128, 512) in sbuf, `result_psum` (64, 512) in psum, `result_sbuf` (64, 512) in sbuf. It is the dst of this tensor_copy, so allocate it above this line with the same shape as `result_psum`.
+      names says what exists and what the missing one is for -> ok
   QUESTION, result tile of the wrong shape:
       raised   ValueError: cannot reshape array of size 32768 into shape (1,64)
       located  line 64, `nisa.nc_matmul(result_psum, lhs_tile, rhs_tile)`
@@ -90,4 +102,6 @@ Located lines: all are the planted ones.
 State on the line: every planted fact was reported.
 Origin of the tile: every planted line was traced.
 In pieces: every planted case was told to cut.
+Too tall for the chip: the planted tile was caught and the reference was not.
+Missing names: the planted name was explained.
 Looking ahead: every planted case was explained by its later use.
