@@ -66,7 +66,38 @@ runs 1, 2, 4 `E B B C A D`; run 5 `A A B C A D`; run 3 `A A A A A` (not solved).
 So the solves came by **two distinct paths**, not one path repeated: run 5 started from a different kernel
 and still converged. The repeat on seat 157 reproduces the pattern on a second chip.
 
+### 15:10 pull: all baselines complete, checker `d761cd0` ("pieces, shapes")
+
+| Level | Baselines (152 / 154 / 158, 15 runs) | Checker `39b8e5a` | Checker `d761cd0` |
+|---|---|---|---|
+| 1 | 0/15, 0.30 every run | 0/5, 0.30 every run | 0/5, 0.30 every run |
+| 2 | 6/15 solved (2/5, 1/5, 3/5) | 2/5 | 1/5 |
+| 3 | 0/15, 0.30 every run | **4/5** | **4/5** |
+| 4 | 0/15, 0.62 every run | **0.75 every run (5/5)** | 0.62 every run (4 runs) - regression |
+
+16-round pair (`--rounds 16`, comparable only with each other): baseline 0/5, all 0.62 except one 0.30;
+checker `d761cd0` 0.75, 0.75, 0.62 over 3 runs. Doubling the rounds does not help the baseline.
+
+**Level 4 regression under `d761cd0`.** Under `39b8e5a` every run went partition -> contraction -> width
+and the contraction message worked (next attempt scored higher). Under `d761cd0` runs 2-4 go
+partition -> contraction -> tensor_copy into HBM -> contraction x3: the contraction message no longer moves
+the model. Achyuthan's next commits (`1c47e56` "one limit at a time", `16dcf94` "speak about width unless the
+error is the contraction") target this and have not been run yet. The reportable checker is `39b8e5a` unless
+a later version beats it on both levels 3 and 4.
+
+**Level 1 did not move under either checker, as predicted.** All 10 checker runs open with the same five
+failures as the baseline (tile size, `transpose_moving`, psum placement, `nisa.multiply` x2) and still
+compute the mean as a matmul; only the last three rounds differ. A checker cannot reach a wrong algorithm.
+
+**No level-1 run so far contains prompt C.** Round-0 prompt length is 2,323 characters in the baseline,
+`checker-l1` and `cand-l1` alike; the detailed hint would add about 400.
+
+**Level 2 is noise**, 1/5 to 3/5 in every condition, including the three baselines.
+
 ### Prompt change C is now in `dev` (`ce61bac`, merged via PR #10)
+
+Team decision (15:14): **not reverted**. So from now on every level-1 run launched from `dev` carries the
+detailed hint, and must be reported as "prompt C (detailed)", never as a checker result.
 
 It is always on for level 1 (no feature flag), and it is the **detailed** version: it tells the model
 "Use this exact plan", `.ap(...)`, `nl.sum(..., axis=[3, 4])`, and `1.0 / (pool_size * pool_size)`.
