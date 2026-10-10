@@ -21,3 +21,11 @@ started	seat	name	features	commit	args
 2026-10-10 14:31	156	cand-r16-l4	internal,origin,pieces,shapes	d761cd0	--level 4 --rounds 16 --samples 4 --context 8192 --repeat 5
 2026-10-10 14:32	154	base-r16-l4	none	d761cd0	--level 4 --rounds 16 --samples 4 --context 8192 --repeat 5
 2026-10-10 14:32	159	cand-l4	internal,origin,pieces,shapes	d761cd0	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 15:13	151	pa-r16-l4	internal,origin,pieces,ahead	16dcf94	--level 4 --rounds 16 --samples 4 --context 8192 --repeat 5
+2026-10-10 15:13	154	p-l4	internal,origin,pieces	16dcf94	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 15:13	157	a-l3	internal,origin,ahead	16dcf94	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 15:13	159	p-r16-l4	internal,origin,pieces	16dcf94	--level 4 --rounds 16 --samples 4 --context 8192 --repeat 5
+2026-10-10 15:13	150	a-l2	internal,origin,ahead	16dcf94	--level 2 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 15:13	153	a-l3	internal,origin,ahead	16dcf94	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 15:13	158	pa-l3	internal,origin,pieces,ahead	16dcf94	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 15:13	156	p-r16-l4	internal,origin,pieces	16dcf94	--level 4 --rounds 16 --samples 4 --context 8192 --repeat 5
