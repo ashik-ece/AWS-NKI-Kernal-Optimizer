@@ -81,7 +81,11 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #            Implies origin.
 #   shapes   list which test shapes pass and which fail, not only the first failure. What the
 #            passing shapes have in common is often the whole diagnosis.
-KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes"}
+#   ahead    explain a tile by what the kernel goes on to do with it: a tile that could not
+#            be allocated is told what it is the result of or copied with, and a tile used for
+#            several things is told each needs its own. Where it speaks, the old hint for that
+#            error is not sent, since the hint is what led the model wrong. Implies origin.
+KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes", "ahead"}
 FEATURES = set()
 
 # Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
@@ -181,12 +185,14 @@ def _grade(source, level):
         except Exception as e:
             raised = f"raised {type(e).__name__}: {e}"
             where = diagnose.where(e, path, source) if "locate" in FEATURES else ""
-            state, rules = (diagnose.state_and_rules(e, path, source, watch,
-                                                     origin="origin" in FEATURES,
-                                                     pieces="pieces" in FEATURES)
-                            if "state" in FEATURES else ("", 0))
+            state, rules, replaces = (diagnose.state_and_rules(e, path, source, watch,
+                                                               origin="origin" in FEATURES,
+                                                               pieces="pieces" in FEATURES,
+                                                               ahead="ahead" in FEATURES)
+                                      if "state" in FEATURES else ("", 0, False))
             drop = rules and ("facts" in FEATURES
-                              or ("internal" in FEATURES and not isinstance(e, AssertionError)))
+                              or ("internal" in FEATURES and not isinstance(e, AssertionError))
+                              or ("ahead" in FEATURES and replaces))
             told = raised if drop else enrich(raised)
             failures.append((nkibench.label(case, level), where + told + state))
             continue
@@ -684,7 +690,7 @@ def main():
     if asked - KNOWN_FEATURES:
         sys.exit(f"unknown --features {sorted(asked - KNOWN_FEATURES)}. Known: "
                  f"{sorted(KNOWN_FEATURES)}")
-    if "pieces" in asked:
+    if asked & {"pieces", "ahead"}:
         asked.add("origin")
     if asked & {"facts", "origin", "internal"}:
         asked.add("state")

@@ -377,6 +377,39 @@ def _earlier_use(source, name, before, inside):
     return (best, statement_at(source, best, limit=140)) if best else None
 
 
+def _later_calls(source, name, after, inside):
+    """Instructions below line `after` that use tile `name` as an operand, in order:
+    [(line, function, {role: operand text})]. What a tile is used for is what its shape is for."""
+    found = []
+    try:
+        for node in ast.walk(ast.parse(source)):
+            if not (isinstance(node, ast.Call) and getattr(node.func, "attr", "") in OPERANDS
+                    and node.func.attr != "ndarray" and after < node.lineno <= inside[1]):
+                continue
+            given = dict(zip(OPERANDS[node.func.attr], node.args))
+            given.update({k.arg: k.value for k in node.keywords if k.arg})
+            roles = {}
+            for role, arg in given.items():
+                root = arg
+                while isinstance(root, ast.Subscript):
+                    root = root.value
+                if isinstance(root, ast.Name):
+                    roles[role] = (root.id, " ".join((ast.get_source_segment(source, arg) or "").split()))
+            if any(r[0] == name for r in roles.values()):
+                found.append((node.lineno, node.func.attr, roles))
+    except SyntaxError:
+        return []
+    return sorted(found, key=lambda f: f[0])
+
+
+def _has_loop(source, inside):
+    try:
+        return any(isinstance(n, (ast.For, ast.While)) and inside[0] <= n.lineno <= inside[1]
+                   for n in ast.walk(ast.parse(source)))
+    except SyntaxError:
+        return False
+
+
 def _in_loop(source, lineno):
     try:
         return any(isinstance(n, (ast.For, ast.While)) and n.lineno < lineno <= (n.end_lineno or 0)
@@ -385,7 +418,8 @@ def _in_loop(source, lineno):
         return False
 
 
-def _origin(func, ops, limits, source, lineno, inside, params, pieces=False):
+def _origin(func, ops, limits, source, lineno, inside, params, pieces=False, error="",
+            ahead=False, assigned=None):
     """Sentences naming the tile that has to change and the line that gave it its shape.
 
     Measured on level 3, two runs out of two: told the failing line, the shapes on it and the
@@ -400,6 +434,7 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False):
     text = {k: v[0] for k, v in ops.items()}
     blame = []                                   # (role, what is wrong with it)
     direct = []                                  # sentences that need no tracing back
+    replaces = False                             # does this say what the old hint tried to?
 
     def size(s):
         return math.prod(s)
@@ -422,12 +457,29 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False):
                                      f"{'small' if have < want else 'large'}: it must equal the "
                                      f"second dimension of `{src}`")
                 blame.append(("dst", "; ".join(parts)))
-    if pieces and func == "nc_matmul":
+    if pieces and func == "nc_matmul" and "free dimension" in error \
+            and shape.get("stationary") and shape.get("moving") and shape.get("dst"):
+        st, mv, dst = shape["stationary"], shape["moving"], shape["dst"]
+        if len(st) == 2 and len(mv) == 2 and st[1] <= smax and mv[1] <= mmax \
+                and tuple(dst) != (st[1], mv[1]):
+            # Measured: with both operands cut to size, the simulator still said "moving free
+            # dimension 1024 exceeds 512". The 1024 was the RESULT tile's. The model, told an
+            # operand was too wide when neither was, sent the same code back three times.
+            direct.append("Both operands are within the limits here, so the simulator's message "
+                          "is about the result tile, which it measures against the same limits.")
+    if pieces and func == "nc_matmul" and "contraction" not in error:
         # Measured on level 4, every run: with one dimension tiled the kernel reached 2 of 4
         # shapes and stopped here, resending the same code. The simulator's message for this has
         # no advice written for it at all. The limit is per call, so the only way through is
         # more pieces: say which dimension, the limit, and that it is cut and looped like the
         # one already cut.
+        # Not while the simulator is complaining about the contraction. Measured: said alongside
+        # a contraction error, with three limits in one message, it made the kernel worse (0.62
+        # where the shorter message reached 0.75). One named change at a time.
+        # The test is "not a contraction error" rather than "a free-dimension error" because
+        # the simulator has no check on the moving operand's width at all: an operand of 1024
+        # with a result tile in range comes back as a numpy reshape error. The self-test caught
+        # that on the real simulator before any run used the narrower test.
         for role, lim in (("stationary", smax), ("moving", mmax)):
             s = shape.get(role)
             if s and len(s) == 2 and s[1] > lim:
@@ -437,7 +489,18 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False):
     if func in ("dma_copy", "tensor_copy") and shape.get("dst") and shape.get("src"):
         big, small = (("dst", "src") if size(shape["dst"]) > size(shape["src"])
                       else ("src", "dst"))
-        if pieces and size(shape["dst"]) != size(shape["src"]) and "hbm" in (ops[big][2] or "") \
+        fixed_output = ops[big][2] == "shared_hbm" and big == "dst" and _has_loop(source, inside)
+        if pieces and size(shape["dst"]) != size(shape["src"]) and fixed_output \
+                and not _in_loop(source, lineno):
+            # The output's shape is set by the task. A piece copied into all of it, after the
+            # loops, means the copy is in the wrong place, not that the output is the wrong size.
+            name = text[big].split("[", 1)[0].strip()
+            direct.append(f"`{name}` is the kernel's output, so its shape is fixed and it stays. "
+                          f"It is larger than what is copied into it here: "
+                          f"{size(shape[big])} elements against {size(shape[small])}. This copy "
+                          f"moves one piece, so it belongs inside the loop that makes the "
+                          f"pieces, writing each one into its own slice of `{name}`.")
+        elif pieces and size(shape["dst"]) != size(shape["src"]) and "hbm" in (ops[big][2] or "") \
                 and _in_loop(source, lineno):
             # A tensor in HBM is an input or the output: its shape is given. When it is the
             # larger side AND the copy sits in a loop, the kernel is moving one piece of it, and
@@ -471,6 +534,8 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False):
         done.add(root)
         made = _allocation(source, root, lineno, inside) if root not in params else None
         used = _earlier_use(source, root, lineno, inside) if func != "nc_matmul" else None
+        later = ([c for c in _later_calls(source, root, lineno, inside)]
+                 if ahead and func in ("dma_copy", "tensor_copy") and not used else [])
         if "too many: at most" in what:
             # No number on the allocation line fixes a tile that is too tall, and a second tile
             # of the same height is no better. Say so before either of the remedies below.
@@ -487,12 +552,46 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False):
                        f"{used[0]}, `{used[1]}`, already ran with the shape it has, so it is "
                        f"being used for two different things. Leave `{root}` as it is and "
                        f"allocate a separate tile for this line, sized to match the other side.")
+        elif later:
+            # Measured, the one level 3 run in five that did not solve: a single tile meant to
+            # hold the left operand, the right operand and the result. Told to resize it, the
+            # model resized it for one of the three and failed on the next, four times over.
+            # The old hint's example, a (128, 512) tile, was the very tile it then allocated.
+            lines = ", ".join(str(c[0]) for c in later[:4])
+            out.append(f"`{root}` is the wrong size here: {what}. It is also used on line"
+                       f"{'s' if len(later) > 1 else ''} {lines} for other data, and one tile "
+                       f"cannot hold different things. Allocate a separate tile for each thing "
+                       f"it holds, each shaped like what is copied into it.")
+            replaces = True
         elif made:
+            piece = (" Each pass of the loop makes one piece of the result, so that tile holds "
+                     "one piece: fill it, copy it to its place in the output, then reuse it."
+                     if pieces and func == "nc_matmul" and role == "dst"
+                     and _in_loop(source, lineno) else "")
             out.append(f"The tile to change is `{root}`: {what}. It got its shape on line "
-                       f"{made[0]}, `{made[1]}`, so that is the line to change, not this one.")
+                       f"{made[0]}, `{made[1]}`, so that is the line to change, not this one."
+                       f"{piece}")
         else:
             out.append(f"The tile to change is `{root}`: {what}.")
-    return direct + out
+    if ahead and func == "ndarray" and assigned:
+        # A tile that could not be allocated has no shape to report, but the kernel already says
+        # what it is for. The old hint for this error -- "give a vector the shape (1, N)" --
+        # answered a question nobody asked and produced the (1, 64) result tile on level 3.
+        for line, called, roles in _later_calls(source, assigned, lineno, inside)[:1]:
+            mine = next((r for r, v in roles.items() if v[0] == assigned), None)
+            if called == "nc_matmul" and mine == "dst" and "stationary" in roles and "moving" in roles:
+                direct.append(f"`{assigned}` is used on line {line} as the result of nc_matmul. "
+                              f"A result has two dimensions: the second dimension of "
+                              f"`{roles['stationary'][1]}`, then the second dimension of "
+                              f"`{roles['moving'][1]}`.")
+                replaces = True
+            elif called in ("dma_copy", "tensor_copy") and mine in ("dst", "src"):
+                other = roles.get("src" if mine == "dst" else "dst")
+                if other:
+                    direct.append(f"`{assigned}` is used on line {line} in a copy with "
+                                  f"`{other[1]}`, so it needs the same shape as `{other[1]}`.")
+                    replaces = True
+    return direct + out, replaces
 
 
 def state(exc, path, source, watch=None, limit=700):
@@ -500,23 +599,29 @@ def state(exc, path, source, watch=None, limit=700):
     return state_and_rules(exc, path, source, watch, limit)[0]
 
 
-def state_and_rules(exc, path, source, watch=None, limit=700, origin=False, pieces=False):
-    """(text, number of rules stated). Shapes alone say what was there; a rule says what was
-    wrong with it. Only the second can stand in for advice."""
+def state_and_rules(exc, path, source, watch=None, limit=700, origin=False, pieces=False,
+                    ahead=False):
+    """(text, number of rules stated, whether it says what the old hint for this error tried
+    to). Shapes alone say what was there; a rule says what was wrong with it. Only the second
+    can stand in for advice."""
     try:
         return _state(exc, path, source, watch,
-                      limit + (350 if origin else 0) + (250 if pieces else 0), origin, pieces)
+                      limit + (350 if origin else 0) + (250 if pieces else 0), origin, pieces,
+                      ahead)
     except Exception as e:
         ERRORS.append(f"state: {type(e).__name__}: {e}")
-        return "", 0
+        return "", 0, False
 
 
-def _state(exc, path, source, watch, limit, origin=False, pieces=False):
+def _state(exc, path, source, watch, limit, origin=False, pieces=False, ahead=False):
     hit = _hit(exc, path, source)
     stmt = _statement_node(source, hit[0]) if hit else None
     if stmt is None:
-        return "", 0
+        return "", 0, False
     frame = hit[1]
+    replaces = False
+    assigned = (stmt.targets[0].id if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name) else None)
     local = dict(frame.f_locals)
     params = set()
     try:
@@ -579,15 +684,17 @@ def _state(exc, path, source, watch, limit, origin=False, pieces=False):
         rules = _rules(func, ops, limits)
         if origin:
             inside = _function_spans(source).get(frame.f_code.co_name, (1, hit[0]))
-            rules += _origin(func, ops, limits, source, hit[0], inside, params, pieces)
+            more, replaces = _origin(func, ops, limits, source, hit[0], inside, params, pieces,
+                                     str(exc), ahead, assigned)
+            rules += more
         break
     if not facts and not rules:
-        return "", 0
+        return "", 0, False
     text = (" At that line: " + "; ".join(facts) + "." if facts else "") \
         + "".join(" " + r for r in rules)
     if len(text) > limit:
         text = text[:limit].rsplit(" ", 1)[0] + " ..."
-    return f"{MARK}{text}{MARK}", len(rules)
+    return f"{MARK}{text}{MARK}", len(rules), replaces
 
 
 # ---------------------------------------------------------------- selftest
@@ -657,6 +764,19 @@ PLANTS = [
                 "src=rhs[k * TILE_K:(k + 1) * TILE_K, :])")],
          expect="nisa.nc_matmul(dst=res_psum, stationary=lhsT_tile, moving=rhs_tile)",
          pieces=["`rhs_tile` is (128, 1024)", "too large", "at most 512", "loop over the pieces"]),
+    dict(name="result tile with one dimension", level=3, case=0,
+         old="result_psum = nl.ndarray(result.shape,",
+         new="result_psum = nl.ndarray((M,),",
+         expect="result_psum = nl.ndarray((M,),",
+         ahead=["`result_psum` is used on line", "as the result of nc_matmul",
+                "second dimension of `lhs_tile`", "second dimension of `rhs_tile`"]),
+    dict(name="one tile for both operands", level=3, case=0,
+         old="lhs_tile = nl.ndarray(lhsT.shape,",
+         new="lhs_tile = nl.ndarray(rhs.shape,",
+         more=[("nisa.dma_copy(dst=rhs_tile, src=rhs)", "nisa.dma_copy(dst=lhs_tile, src=rhs)")],
+         expect="nisa.dma_copy(dst=lhs_tile, src=lhsT)",
+         ahead=["`lhs_tile` is the wrong size here", "It is also used on line",
+                "Allocate a separate tile for each thing"]),
     # Not pass/fail. This asks the simulator a question: what does a result tile of the wrong
     # shape look like from outside? If the answer is a reshape error, then a kernel with no
     # reshape in it can produce one, and the line is the only thing that says where.
@@ -708,7 +828,7 @@ def selftest():
     ok2 = shown(marked) == "On K=1: line 3, `x`, raised E: m" and key(marked) == "On K=1: raised E: m"
     print(f"  shown / key: located text shown, then removed     -> {'ok' if ok2 else 'FAIL'}")
     rc = 0 if ok and ok2 else 1
-    state_rc = origin_rc = pieces_rc = 0
+    state_rc = origin_rc = pieces_rc = ahead_rc = 0
 
     try:
         import nki
@@ -791,6 +911,13 @@ def selftest():
             print(f"      pieces says to cut, not to resize -> {'ok' if not gone else 'FAIL'}"
                   + (f"  missing: {gone}" if gone else ""))
             pieces_rc |= 0 if not gone else 1
+        if p.get("ahead"):
+            look = shown(state_and_rules(err, path, source, w, origin=True, ahead=True)[0])
+            gone = [f for f in p["ahead"] if f not in look]
+            print(f"      ahead   {look.strip()[-300:] if look else 'NOTHING SAID'}")
+            print(f"      ahead explains the tile by its later use -> {'ok' if not gone else 'FAIL'}"
+                  + (f"  missing: {gone}" if gone else ""))
+            ahead_rc |= 0 if not gone else 1
 
     print()
     print("Located lines: " + ("all are the planted ones." if rc == 0 else
@@ -801,7 +928,10 @@ def selftest():
                                     "SOMETHING FAILED. Do not use --features origin until this passes."))
     print("In pieces: " + ("every planted case was told to cut." if pieces_rc == 0 else
                            "SOMETHING FAILED. Do not use --features pieces until this passes."))
-    return rc | (state_rc << 1) | (origin_rc << 2) | (pieces_rc << 3)
+    print("Looking ahead: " + ("every planted case was explained by its later use."
+                               if ahead_rc == 0 else
+                               "SOMETHING FAILED. Do not use --features ahead until this passes."))
+    return rc | (state_rc << 1) | (origin_rc << 2) | (pieces_rc << 3) | (ahead_rc << 4)
 
 
 def replay(log_path, level=None, features=("locate", "state")):

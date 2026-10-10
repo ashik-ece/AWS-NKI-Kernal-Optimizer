@@ -62,8 +62,22 @@ Planting known bugs in the reference kernels and checking the located line.
       located  line 77, `nisa.nc_matmul(dst=res_psum, stationary=lhsT_tile, moving=rhs_tile)`
       state   At that line: `res_psum` is (128, 512) in psum; `lhsT_tile` is (128, 128) in sbuf; `rhs_tile` is (128, 1024) in sbuf. The second dimension of moving may be at most 512: it is 1024. The result of nc_matmul has stationary's second dimension as its first and moving's second dimension as its second, and dst must be exactly that shape: dst is (128, 512).
       state reports every planted fact -> ok
-      pieces  n as its first and moving's second dimension as its second, and dst must be exactly that shape: dst is (128, 512). `rhs_tile` is (128, 1024): its second dimension is 1024, too large, since one nc_matmul takes at most 512 there. Cut that dimension too, at most 512 at a time, and loop over the pieces.
-      pieces says to cut, not to resize -> ok
+      pieces  sT_tile` is (128, 128) in sbuf; `rhs_tile` is (128, 1024) in sbuf. The second dimension of moving may be at most 512: it is 1024. The result of nc_matmul has stationary's second dimension as its first and moving's second dimension as its second, and dst must be exactly that shape: dst is (128, 512).
+      pieces says to cut, not to resize -> FAIL  missing: ['too large', 'loop over the pieces']
+  result tile with one dimension: ok
+      raised   AssertionError: SBUF and PSUM tensors must have at least 2 dimensions (partition-dim and free-dim)
+      located  line 60, `result_psum = nl.ndarray((M,), dtype=nl.float32, buffer=nl.psum)`
+      state   At that line: `M` = 64. A tile on the chip needs at least 2 dimensions, the partition dimension first: this shape has 1.
+      state reports every planted fact -> ok
+      ahead   At that line: `M` = 64. A tile on the chip needs at least 2 dimensions, the partition dimension first: this shape has 1. `result_psum` is used on line 64 as the result of nc_matmul. A result has two dimensions: the second dimension of `lhs_tile`, then the second dimension of `rhs_tile`.
+      ahead explains the tile by its later use -> ok
+  one tile for both operands: ok
+      raised   AssertionError: dma_copy requires src and dst to have the same number of elements, got src=8192, dst=65536
+      located  line 56, `nisa.dma_copy(dst=lhs_tile, src=lhsT)`
+      state   At that line: `lhs_tile` is (128, 512) in sbuf; `lhsT` is (128, 64) in HBM (an input). The two sides of a dma_copy must hold the same number of elements, because it does not slice, reshape or broadcast: dst holds 65536 elements and src holds 8192.
+      state reports every planted fact -> ok
+      ahead    src holds 8192. `lhs_tile` is the wrong size here: it holds 65536 elements, too large for the 8192 on the other side. It is also used on lines 57, 64 for other data, and one tile cannot hold different things. Allocate a separate tile for each thing it holds, each shaped like what is copied into it.
+      ahead explains the tile by its later use -> ok
   QUESTION, result tile of the wrong shape:
       raised   ValueError: cannot reshape array of size 32768 into shape (1,64)
       located  line 64, `nisa.nc_matmul(result_psum, lhs_tile, rhs_tile)`
@@ -75,4 +89,5 @@ Planting known bugs in the reference kernels and checking the located line.
 Located lines: all are the planted ones.
 State on the line: every planted fact was reported.
 Origin of the tile: every planted line was traced.
-In pieces: every planted case was told to cut.
+In pieces: SOMETHING FAILED. Do not use --features pieces until this passes.
+Looking ahead: every planted case was explained by its later use.
