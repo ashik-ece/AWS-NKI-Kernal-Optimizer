@@ -21,6 +21,10 @@ def nc_matmul(dst=None, stationary=None, moving=None, **kw):
     if moving.shape[1] > 512:
         raise AssertionError(f"Matmul moving free dimension {moving.shape[1]} exceeds "
                              f"gemm_moving_fmax=512")
+    if dst.shape[-1] > 512:
+        # Seen on the real simulator with both operands in range: it names the moving operand.
+        raise AssertionError(f"Matmul moving free dimension {dst.shape[-1]} exceeds max 512 for "
+                             f"nc_version=nc_version.gen3")
     out = stationary.arr.astype(np.float32).T @ moving.arr.astype(np.float32)
     dst.arr[...] += out.reshape(dst.arr.shape)
 

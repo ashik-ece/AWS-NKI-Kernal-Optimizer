@@ -100,14 +100,17 @@ def main():
                   f"{'ok' if ok else 'FAIL'}  ({told} of {len(prompts) - 1})")
             rc |= 0 if ok else 1
 
-    # facts REMOVES text, so "identical once hidden" does not apply to it. What must still hold:
-    # the loop takes the same path, since which failures count as the same has not changed.
+    # facts and ahead REMOVE text, so "identical once hidden" does not apply to them. What must
+    # still hold: the loop takes the same path, since which failures count as the same has not
+    # changed.
     for name, script in scenarios.items():
         base_result, base_prompts, base_stop = run(set(), script)
-        result, prompts, stop = run({"locate", "state", "facts"}, script)
-        ok = base_result == result and base_stop == stop and len(prompts) == len(base_prompts)
-        print(f"  facts, {name}: same reward, rounds and stop reason -> {'ok' if ok else 'FAIL'}")
-        rc |= 0 if ok else 1
+        for feats in ({"locate", "state", "facts"}, {"locate", "state", "internal", "origin", "ahead"}):
+            result, prompts, stop = run(feats, script)
+            ok = base_result == result and base_stop == stop and len(prompts) == len(base_prompts)
+            tag = "facts" if "facts" in feats else "ahead"
+            print(f"  {tag}, {name}: same reward, rounds and stop reason -> {'ok' if ok else 'FAIL'}")
+            rc |= 0 if ok else 1
     agent.FEATURES.update({"locate", "state", "facts"})
     _, _, feedback, _ = agent.grade(planted("result tile of the wrong shape"), 3)
     agent.FEATURES.clear()

@@ -99,6 +99,7 @@ case "${1:-}" in
        || ! grep -q "State on the line: every planted fact was reported." "$RESULTS/$POD/check_diagnose.out" \
        || ! grep -q "Origin of the tile: every planted line was traced." "$RESULTS/$POD/check_diagnose.out" \
        || ! grep -q "In pieces: every planted case was told to cut." "$RESULTS/$POD/check_diagnose.out" \
+       || ! grep -q "Looking ahead: every planted case was explained by its later use." "$RESULTS/$POD/check_diagnose.out" \
        || ! grep -q "SELFTEST PASSED" "$RESULTS/$POD/check_nkibench.out"; then
       echo "CHECK FAILED on $POD. Read $RESULTS/$POD/check_*.out before running anything here." >&2
       exit 1
