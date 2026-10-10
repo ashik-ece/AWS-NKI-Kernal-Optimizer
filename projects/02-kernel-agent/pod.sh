@@ -16,6 +16,8 @@
 #                                      ./pod.sh run state-l3 state 3     level 3 only
 #   ./pod.sh replay NAME             what the features would have told the model, for every failing
 #                                    kernel in NAME.jsonl. Calls no model; safe beside a run.
+#   ./pod.sh findings                run findings/run_findings.py on the real simulator; saves
+#                                    results/seat-N/findings.out. Needs no model; safe beside a run.
 #   ./pod.sh stop                    stop the run going on this seat. Its log so far is kept.
 #   ./pod.sh status [NAME]           is a run going, and the last lines of its output
 #   ./pod.sh pull NAME               copy NAME.jsonl and NAME.out into results/seat-$SEAT/
@@ -137,6 +139,12 @@ case "${1:-}" in
     kubectl exec "$POD" -- cat "$REMOTE/replay_$NAME.out" > "$RESULTS/$POD/replay_$NAME.out"
     echo "saved to $RESULTS/$POD/replay_$NAME.out"
     ;;
+  findings)
+    in_pod "python findings/run_findings.py > findings.out 2>&1; echo \"findings exit \$?\"; sed -n '/SUMMARY/,\$p' findings.out"
+    mkdir -p "$RESULTS/$POD"
+    kubectl exec "$POD" -- cat "$REMOTE/findings.out" > "$RESULTS/$POD/findings.out"
+    echo "saved to $RESULTS/$POD/findings.out"
+    ;;
   stop)
     # [p]ython, so the pattern cannot match the shell that is carrying this very command.
     in_pod "pkill -f '[p]ython agent.py' && echo 'stopped the run on $POD' || echo 'no run was going on $POD'"
@@ -166,6 +174,6 @@ case "${1:-}" in
     echo "$RESULTS/$POD/${3:-$(basename "$SRC")}"
     ;;
   *)
-    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
     ;;
 esac
