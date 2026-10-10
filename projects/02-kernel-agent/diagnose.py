@@ -467,15 +467,19 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False, err
             # operand was too wide when neither was, sent the same code back three times.
             direct.append("Both operands are within the limits here, so the simulator's message "
                           "is about the result tile, which it measures against the same limits.")
-    if pieces and func == "nc_matmul" and "free dimension" in error:
+    if pieces and func == "nc_matmul" and "contraction" not in error:
         # Measured on level 4, every run: with one dimension tiled the kernel reached 2 of 4
         # shapes and stopped here, resending the same code. The simulator's message for this has
         # no advice written for it at all. The limit is per call, so the only way through is
         # more pieces: say which dimension, the limit, and that it is cut and looped like the
         # one already cut.
-        # Only when the simulator is itself complaining about a free dimension. Measured: said
-        # alongside a contraction error, with three limits in one message, it made the kernel
-        # worse (0.62 where the shorter message reached 0.75). One named change at a time.
+        # Not while the simulator is complaining about the contraction. Measured: said alongside
+        # a contraction error, with three limits in one message, it made the kernel worse (0.62
+        # where the shorter message reached 0.75). One named change at a time.
+        # The test is "not a contraction error" rather than "a free-dimension error" because
+        # the simulator has no check on the moving operand's width at all: an operand of 1024
+        # with a result tile in range comes back as a numpy reshape error. The self-test caught
+        # that on the real simulator before any run used the narrower test.
         for role, lim in (("stationary", smax), ("moving", mmax)):
             s = shape.get(role)
             if s and len(s) == 2 and s[1] > lim:
