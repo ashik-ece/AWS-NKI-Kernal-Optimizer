@@ -1,0 +1,6 @@
+features ['internal', 'locate', 'origin', 'pieces', 'shapes', 'state']
+endpoint http://localhost:8000/v1  model Qwen/Qwen3-8B
+
+################ run 1 of 5 ################
+
+=========== level 4: matmul, tiled ===========

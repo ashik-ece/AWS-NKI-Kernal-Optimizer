@@ -1,0 +1,8 @@
+features ['internal', 'locate', 'origin', 'pieces', 'shapes', 'state']
+endpoint http://localhost:8000/v1  model Qwen/Qwen3-8B
+
+################ run 1 of 5 ################
+
+=========== level 4: matmul, tiled ===========
+round 0: this round 0.30  best so far 0.30  (63.4s)
+  0 of 4 shapes passed. On K=128 M=128 N=512: line 31, `nisa.tensor_copy(dst=sbuf_stationary, src=psum)`, raised ValueError: shape mismatch: value array of shape (65536,) could not be broadcast to indexing result of shape (16384,) At that line: `sbuf_stationary` is (128, 128) in sbuf; `psum` is (128, 512) in psum. The two sides of a tensor_copy must hold the same number of elements, because it does 
