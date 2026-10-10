@@ -51,6 +51,12 @@ all at **16 rounds** (outside the frozen 8, so comparable only with each other a
 `ex-all-l4` (154, 156: `internal,origin,ahead,names,strict,example`), `ex-min-l4` (159:
 `internal,origin,strict,example`), and `hint-checker-l1` (151: the checker plus `ahead,names`, on code that
 contains the detailed level 1 hint, so it is "checker + prompt C detailed", not a checker result).
+TODO 18:00: `checker-l3c` (150, 158, `dae55d8`, from 16:50): 10 more level 3 runs of the reportable checker,
+pooled with the 6/7 (identical level 3 feedback on all 93 logged kernels; the only code change is the
+bytecode fix) and listed per batch. Level 8, attention, untuned (157 `base-l8` no flags, 153 `checker-l8`
+reportable checker, 8 rounds): does the checker generalise? `layout` (150, 158, started 16:43) was stopped
+before finishing and is not scored. Scoring gaps found, each with a repro kernel run through
+`nkibench.py --check` on the real simulator: `findings/`, output in `results/seat-150/findings.out`.
 The fixed `ahead` replaces the checker only if level 3 holds, level 4 holds 0.75 and level 2 is no worse.
 **Verdict: not adopted.** Level 3 held (8/10 against 6/7) and level 2 is no worse, but level 4 dropped to 0.62
 in one run of five. The reported checker stays `internal,origin`. The first `ahead` (`16dcf94`) is the best
