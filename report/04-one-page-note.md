@@ -81,7 +81,7 @@ every condition, baselines included: that is noise, not an effect.
 | Features | What the model is told, in addition | Level 3 | Level 4 |
 |---|---|---|---|
 | none (baseline) | the simulator's error plus advice keyed on its text | 0/15 | 0.62 |
-| `locate` | the line of the kernel that failed | 0/5 | |
+| `locate` | the line of the kernel that failed | 0/4 | |
 | `state` | plus the shape and buffer of every tile on that line, and the rule they break | 0/5 | **0.75** |
 | `facts` | rule *replaces* the advice for every error | 0/4 | |
 | `facts, origin` | plus the line that gave the wrong tile its shape | 0/5 | 0.62 (4 runs) |

@@ -34,18 +34,22 @@ in 103. The detailed recipe: **[18:00: l1-detailed-b]**.
 
 | Checker flags | What the model is also told | Level 3 |
 |---|---|---|
-| `locate` | the failing line | 0/5 |
+| `locate` | the failing line | 0/4 |
 | `state` | shapes and buffers on that line, and the rule broken | 0/5 |
 | `facts,origin` | the line that gave the wrong tile its shape; rule replaces all advice | 0/5 |
 | `internal,origin` | the same, but advice dropped only for numpy errors inside the simulator | **4/5** |
 
-Naming the line was not enough; the model needed the line where the tile got its shape, and the advice dropped
-where it was keyed on numpy errors from inside the simulator. The failures moved where the new information
-pointed: the baseline never got past loading the inputs (0 of 84 failed attempts); under the checker 64% got
-to the matmul or later. **Demo:** `results/level3-recovery-transcript.md`, one run, every message verbatim:
-the model fixes the tile each message points to, one per round, and solves in round 5. Round 0 still carries
-the old "(1, N)" hint and the model follows it in round 1; the next message's pointer to the line that set the
-tile's shape is what recovers it.
+Naming the failing line was not enough (0/4). What worked is `origin`: it names the wrong tile, which dimension
+is off and which way, which operand it must match, and the line that allocated it; `internal` drops the old
+advice for numpy errors from inside the simulator. The failures moved where that information pointed: the
+baseline never got past loading the inputs (0 of 84 failed attempts); under the checker 64% got to the matmul
+or later. **Demo:** `results/level3-recovery-transcript.md`, one run, every message verbatim. Round 0 still
+carries the old "(1, N)" hint (the 1-D error is one of the simulator's own checks, so `internal` keeps it), and
+the model follows it. From round 1 `origin`'s messages take the result tile from (64, 1) to (128, 512) to
+(64, 512), the right shape, in two rounds, each step following the message; solved in round 5. `ahead`
+replaces that hint with the tile's role (the result of the matmul on line 18, and what its two dimensions must
+be): the hint appears in 12 of 12 one-dimension errors under the checker and 0 of 24 under `ahead`, which
+removes the detour, and its solves take 4 rounds instead of 6.
 
 ## Holes in the scoring, reproduced on the real simulator
 
@@ -87,5 +91,5 @@ One wall fell cleanly. Level 3 went from 0 of 15 to [18:00] of [18:00] runs, eve
 rules, by changing only what the checker says. Level 4's kernels learned to tile, but their higher score
 depends on a tile the harness fails to reject, so honestly it is still 0.62. Level 1 needs the algorithm, not
 better errors: one sentence of prompt fixed the method, not the score. The largest lesson: the existing
-feedback was not just vague but misleading, and pointing at the line that caused the error mattered more than
-describing the error better.
+feedback was not just vague but misleading, and what fixed it was telling the model which tile is wrong, in
+which dimension, which way, and where it was allocated; naming the failing line alone did nothing.
