@@ -111,6 +111,11 @@ Start with [\`$SUB/NOTE.md\`]($SUB/NOTE.md); paths in it are relative to \`$SUB/
   fix). Every run, its seat, commit and flags: \`$SUB/results/RUNS.tsv\`.
 
 Nothing here was timed on the device; all numbers come from \`nki.simulate\`.
+
+**The team.** If this work interests you, we would be glad to talk.
+- Ashik M John, measurement and write-up: [LinkedIn](https://www.linkedin.com/in/ashik-dev/) · @ashik-ece
+- Achyuthan Sivasankar, checker: [LinkedIn](https://www.linkedin.com/in/achyuthan-sivasankar-b0814b221) · @Achyuthan-S
+- Perumal Marimuthu, agent and prompt: [LinkedIn](https://www.linkedin.com/in/perumal-marimuthu-378574221) · @Perumal100
 EOF
 echo "== PR description, editable before pushing: $WORK/pr-body.md"
 sed 's/^/   | /' "$WORK/pr-body.md"
