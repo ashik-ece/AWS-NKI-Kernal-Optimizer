@@ -49,3 +49,5 @@ started	seat	name	features	commit	args
 2026-10-10 16:43	153	checker-l8	internal,origin	dae55d8	--level 8 --rounds 8 --samples 4 --context 8192 --repeat 5
 2026-10-10 16:43	158	final-l3	internal,origin,ahead,names,layout,strict	dae55d8	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
 2026-10-10 16:43	157	base-l8	none	dae55d8	--level 8 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:48	150	checker-l3c	internal,origin	dae55d8	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 16:48	158	checker-l3c	internal,origin	dae55d8	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
