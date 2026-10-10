@@ -34,8 +34,8 @@ class _Tensor:
         return _Tensor(self.arr[idx], self.buffer)
 
 
-def affine_range(n):
-    return range(n)
+def affine_range(*args):
+    return range(*args)
 
 
 def ndarray(shape, dtype=np.float32, buffer=None):

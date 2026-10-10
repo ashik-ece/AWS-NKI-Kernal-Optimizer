@@ -75,7 +75,13 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #            describe the kernel, and the advice for them carries the how-to, so it stays.
 #            Measured: dropping it there left level 4 at 0.62; keeping it reached 0.75.
 #            Implies state.
-KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal"}
+#   pieces   the two cases where the answer is more pieces and not a different size: a tensor
+#            in HBM that is larger than the tile it is copied to or from (slice it), and a
+#            matmul operand whose free dimension is over the limit (cut that dimension too).
+#            Implies origin.
+#   shapes   list which test shapes pass and which fail, not only the first failure. What the
+#            passing shapes have in common is often the whole diagnosis.
+KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes"}
 FEATURES = set()
 
 # Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
@@ -160,6 +166,7 @@ def _grade(source, level):
                 f"{type(e).__name__}: {e}")
 
     failures, passed, intensity = [], 0, None
+    passed_labels = []
     for case in spec["shapes"]:
         args, _ = nkibench.make_inputs(case, level)
         before = [x.copy() if isinstance(x, np.ndarray) else x for x in args]
@@ -175,7 +182,8 @@ def _grade(source, level):
             raised = f"raised {type(e).__name__}: {e}"
             where = diagnose.where(e, path, source) if "locate" in FEATURES else ""
             state, rules = (diagnose.state_and_rules(e, path, source, watch,
-                                                     origin="origin" in FEATURES)
+                                                     origin="origin" in FEATURES,
+                                                     pieces="pieces" in FEATURES)
                             if "state" in FEATURES else ("", 0))
             drop = rules and ("facts" in FEATURES
                               or ("internal" in FEATURES and not isinstance(e, AssertionError)))
@@ -198,15 +206,20 @@ def _grade(source, level):
             failures.append((nkibench.label(case, level), m))
             continue
         passed += 1
+        passed_labels.append(nkibench.label(case, level))
         if level >= 3 and counted["bytes"]:
             intensity = nkibench.roofline(
                 nkibench.matmul_flops(case["M"], case["K"], case["N"]), counted["bytes"])
 
     if failures:
         lbl, first = failures[0]
+        which = ""
+        if "shapes" in FEATURES and len(spec["shapes"]) > 1:
+            which = (f"{diagnose.MARK} Shapes that pass: {'; '.join(passed_labels) or 'none'}. "
+                     f"Shapes that fail: {'; '.join(l for l, _ in failures)}.{diagnose.MARK}")
         return (sum(WEIGHTS[k] for k, v in parts.items() if v)
                 + WEIGHTS["correct"] * passed / len(spec["shapes"]), parts,
-                f"{passed} of {len(spec['shapes'])} shapes passed. On {lbl}: {first}")
+                f"{passed} of {len(spec['shapes'])} shapes passed. On {lbl}: {first}{which}")
 
     parts["correct"] = True
     reward = sum(WEIGHTS.values())
@@ -661,6 +674,8 @@ def main():
     if asked - KNOWN_FEATURES:
         sys.exit(f"unknown --features {sorted(asked - KNOWN_FEATURES)}. Known: "
                  f"{sorted(KNOWN_FEATURES)}")
+    if "pieces" in asked:
+        asked.add("origin")
     if asked & {"facts", "origin", "internal"}:
         asked.add("state")
     if "state" in asked:
