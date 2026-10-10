@@ -46,7 +46,11 @@ are the real simulator's.
 Other flag sets, all reported: `pieces` on level 4 at 8 rounds scored 0.75, 0.62 and 0.50, so it is not
 adopted; `pieces,ahead` solves level 3 3/3. TODO ~17:00: `names` (`internal,origin,ahead,names`, `2d87250`):
 level 3 on seats 150 and 158, level 2 on 157, level 4 on 153. `example` (`32f6055`, a worked tiling example
-in the repair prompt after a too-tall tile) is a prompt change, reported separately; not started yet.
+in the repair prompt after a too-tall tile) is a prompt change, reported separately. Started 16:21 on `32f6055`,
+all at **16 rounds** (outside the frozen 8, so comparable only with each other and with `base-r16-l4`):
+`ex-all-l4` (154, 156: `internal,origin,ahead,names,strict,example`), `ex-min-l4` (159:
+`internal,origin,strict,example`), and `hint-checker-l1` (151: the checker plus `ahead,names`, on code that
+contains the detailed level 1 hint, so it is "checker + prompt C detailed", not a checker result).
 The fixed `ahead` replaces the checker only if level 3 holds, level 4 holds 0.75 and level 2 is no worse.
 **Verdict: not adopted.** Level 3 held (8/10 against 6/7) and level 2 is no worse, but level 4 dropped to 0.62
 in one run of five. The reported checker stays `internal,origin`. The first `ahead` (`16dcf94`) is the best
@@ -131,8 +135,11 @@ Full taxonomy with examples: `report/01-baseline-and-taxonomy.md` (section 2b fo
   The simulator also accepts a kernel that returns its result from PSUM instead of HBM, which the chip would
   not. All 6 reportable-checker solves and all 10 first-`ahead` solves return from HBM; 2 of the 8 fixed-`ahead`
   solves (seat 150, runs 2 and 4) do not, so that row is 6/10 chip-valid. We checked every solve for this.
-- **A harness bug, found and fixed.** Stale Python bytecode could grade one sample as another of the same
-  length. Regrading the 3 suspicious records of 4,344 changed none, so no logged score is affected.
+- **A grading bug in the agent, found and fixed** (`dae55d8`). The agent now writes each candidate to its own
+  file; the original reused one path, and importlib's bytecode cache (which checks only size and modification
+  time to the second) could grade one sample as another of the same length. Regrading the 3 suspicious records
+  of 4,344 changed none, so no logged score is affected. The harness, `nkibench.py`, is byte-identical to the
+  organisers' copy (`d11ccdf`).
 - **Prompt change C** (level 1) is reported separately, no checker flags. The short hint measured (seat 155,
   `e29cc01` on `0278dc1`), verbatim: "Average pooling is a per-window sum followed by a scale; it needs no
   matrix multiplication. Use a strided view of pooling windows and nl.sum for the reduction." It changed the
