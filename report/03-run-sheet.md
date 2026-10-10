@@ -106,6 +106,25 @@ from now on does, including checker runs. Such runs must be labelled "checker + 
 result from them cannot be credited to the checker. If it stays, the note must quote the hint verbatim and
 say it gives the model the reference algorithm.
 
+### 16:10 pull (`c81f974`, PR #17): fixed `ahead` (`11fbb86`) and the last `16dcf94` runs
+
+| Log | Flags, commit | Completed | Result |
+|---|---|---|---|
+| seat-153 + 157 `a-l3` | internal,origin,ahead, `16dcf94` | 10 of 10 | **10/10**; rounds 4,4,4,4,7 / 4,7,4,4,4 |
+| seat-150 `a2-l3` | internal,origin,ahead, `11fbb86` | 5 of 5 | 4/5 (0.30, then solved in 5, 4, 5, 4) |
+| seat-158 `a2-l3` | internal,origin,ahead, `11fbb86` | 5 of 5 | 4/5 (0.30, then solved in 4, 4, 4, 4) |
+| seat-151 `a2-l4` | internal,origin,ahead, `11fbb86` | 2 of 3 started | 0.62, 0.75 |
+| seat-159 `a2-l4` | internal,origin,ahead, `11fbb86` | 3 of 4 started | 0.75, 0.75, 0.75 |
+| seat-153 `a2-l2` | internal,origin,ahead, `11fbb86` | 4 of 5 started | 1/4 |
+| seat-157 `a2-l2` | internal,origin,ahead, `11fbb86` | 5 of 5 | 2/5 |
+| seat-154 `p-l4` | internal,origin,pieces, `16dcf94` | 3 of 4 started | 0.75, 0.62, 0.50 |
+| seat-156 `p-r16-l4` | internal,origin,pieces, 16 rounds | 3 of 4 started | 0.75, 0.75, 0.75 |
+
+Fixed `ahead` not adopted: level 4 fell to 0.62 in 1 of 5. `pieces` not adopted (0.50 and 0.62 at 8 rounds).
+`2d87250` adds a `names` flag (explain an undefined name); off by default, and the replay against `11fbb86`
+on the stand-in shows 0 differences in 385 kernels for both `internal,origin` and `internal,origin,ahead`.
+Still to pull: `strict-l4` (154) and `strict-r16-l4` (156), on `c349ec2`.
+
 ### Prompt C, short hint (seat 155, `Perumal/Level1-Prompt` at `c4e5eb2`)
 
 Code `e29cc01` (= `0278dc1` + the short hint), `--features '' --level 1`, frozen settings. Logs:

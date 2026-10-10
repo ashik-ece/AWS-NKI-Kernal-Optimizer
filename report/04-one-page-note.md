@@ -36,19 +36,23 @@ errors are the real simulator's.
 | Level | Baseline (15 runs) | Checker `internal,origin` | + `ahead`, first version (`16dcf94`) | + `ahead`, fixed (`11fbb86`) | Prompt C, short (level 1) |
 |---|---|---|---|---|---|
 | 1 average pooling | 0/15, always 0.30 | 0/5, always 0.30 | not run | not run | 0/5, always 0.30, but **algorithm fixed**: `nc_matmul` 0/104 attempts (baseline 160/160), `nl.sum` 103/104 (0) |
-| 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | 3/5 (noise range) | TODO 16:10 (`a2-l2`, seats 153, 157) | n/a |
-| 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | **8/8 so far on two chips, 7 in 4 rounds** (TODO: out of 10 at 16:10) | TODO 16:10 (`a2-l3`, seats 150, 158) | n/a |
-| 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** as scored; **0.62 with the 128-row rule enforced** (see caveats) | with `pieces`: **0.62** (1 run, regressed) | TODO 16:10 (`a2-l4`, seats 151, 159): **decides adoption** | n/a |
+| 2 transpose | 6/15 (1/5 to 3/5 per seat) | 2/5 | 3/5 (noise range) | 3/9 completed (noise range) | n/a |
+| 3 matmul, one tile | 0/15, always 0.30 | **6/7 completed runs** on two chips [1, 1, 0.3, 1, 1 / 1, 1] | **10/10 on two chips; 8 in 4 rounds, 2 in 7** | 8/10 on two chips (run 1 failed on both); solves in 4 or 5 rounds | n/a |
+| 4 matmul, tiled | 0/15, always 0.62 | 0/5, **always 0.75** as scored; **0.62 with the 128-row rule enforced** (see caveats) | not run alone; with `pieces`: **0.62** (1 run, regressed) | 0.75 in 4 of 5 completed runs, 0.62 in 1 (as scored) | n/a |
 
 Other flag sets, all reported: `pieces` on level 4 at 8 rounds scored 0.75, 0.62 and 0.50, so it is not
 adopted; `pieces,ahead` solves level 3 3/3. TODO 16:10+: `strict` runs on level 4 (seats 154, 156, `c349ec2`).
 The fixed `ahead` replaces the checker only if level 3 holds, level 4 holds 0.75 and level 2 is no worse.
+**Verdict: not adopted.** Level 3 held (8/10 against 6/7) and level 2 is no worse, but level 4 dropped to 0.62
+in one run of five. The reported checker stays `internal,origin`. The first `ahead` (`16dcf94`) is the best
+level 3 result we have, 10/10 and faster, and is reported as that; it was never run alone on level 4, so its
+level 4 effect is known only in combination with `pieces` (0.62).
 
 An eighth level 3 run (seat 157, run 3) stopped after round 3 with no error and no summary line; every solving
 run was also still at 0.30 at round 3, so it says nothing either way. Counted as unsolved, the figure is 6 of 8.
 **Every one of the 10 level 3 solves without `ahead` took exactly 6 rounds**, which makes rounds-to-solve a
-low-noise measure for comparing checker variants. **With `ahead` added (`16dcf94`), 8 of 8 completed level 3
-runs solved, 7 of them in 4 rounds and one in 7** (seats 153 and 157). On level 4, `pieces,ahead` fell back to
+low-noise measure for comparing checker variants. **With `ahead` added (`16dcf94`), 10 of 10 level 3 runs
+solved, 8 of them in 4 rounds and 2 in 7** (seats 153 and 157). On level 4, `pieces,ahead` fell back to
 0.62; `11fbb86` then narrowed `ahead` to count only later writes. That change alters `ahead`'s feedback on 77
 of 303 logged kernels, so runs on `11fbb86` are a new condition, not more of the same. The plain
 `internal,origin` feedback is identical between `16dcf94` and `11fbb86` on all 303 kernels (stand-in
