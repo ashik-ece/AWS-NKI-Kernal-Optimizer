@@ -13,6 +13,9 @@ def dma_copy(dst=None, src=None, **kw):
 
 
 def nc_matmul(dst=None, stationary=None, moving=None, **kw):
+    if stationary.shape[0] != moving.shape[0]:
+        raise AssertionError(f"Matmul contraction dimension mismatch: stationary[0]="
+                             f"{stationary.shape[0]} != moving[0]={moving.shape[0]}")
     if stationary.shape[0] > 128:
         raise AssertionError(f"Matmul contraction dimension {stationary.shape[0]} exceeds pmax=128")
     if stationary.shape[1] > 128:

@@ -224,6 +224,44 @@ def _pmax():
         return 128
 
 
+def output_on_chip(source, entry):
+    """The message for a kernel that returns an on-chip tile as its output, or ''.
+
+    Found in the logs: three level 3 runs scored 1.0 with a kernel that returns its PSUM tile
+    directly, with no copy out to HBM. The simulator hands back the numbers either way. Every
+    reference kernel returns a tensor allocated in shared_hbm, which is where a kernel's output
+    has to be on the device. Read from the source: the returned name and the buffer it was
+    allocated with. Anything less plain than `return name` is left alone rather than guessed at.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ""
+    fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == entry),
+              None)
+    if fn is None:
+        return ""
+    returned = [n for n in ast.walk(fn) if isinstance(n, ast.Return) and isinstance(n.value, ast.Name)]
+    if len(returned) != 1:
+        return ""
+    name, where = returned[0].value.id, None
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name) \
+                and n.targets[0].id == name:
+            where = None
+            if isinstance(n.value, ast.Call) and getattr(n.value.func, "attr", "") == "ndarray":
+                buf = next((k.value for k in n.value.keywords if k.arg == "buffer"),
+                           n.value.args[2] if len(n.value.args) > 2 else None)
+                where = "sbuf" if buf is None else _region_name(ast.unparse(buf))
+                line = n.lineno
+    if where not in ("sbuf", "psum"):
+        return ""
+    return (f"RUNS ON THE SIMULATOR, NOT ON THE CHIP: the kernel returns `{name}`, which line "
+            f"{line} allocates in {where}. A kernel's output has to be in HBM: allocate it with "
+            f"buffer=nl.shared_hbm and copy the result into it -- from psum to sbuf with "
+            f"nisa.tensor_copy, then from sbuf to the output with nisa.dma_copy.")
+
+
 def tall(watch, source):
     """The message for an on-chip tile allocated with more rows than a tile can have, or ''.
 
@@ -459,6 +497,42 @@ def _in_loop(source, lineno):
                    for n in ast.walk(ast.parse(source)))
     except SyntaxError:
         return False
+
+
+def _loaded_askew(func, ops, source, lineno, inside, local):
+    """Sentences for a matmul operand that was LOADED with the wrong layout, or [].
+
+    Measured, level 3, two runs out of three on one seat: the model allocates the left operand's
+    tile as (64, 128) and copies `lhsT`, which is (128, 64), into it. Same number of elements, so
+    the copy is accepted. The matmul then says the contraction dimensions differ, 64 against 128,
+    which is true and points at the matmul; the model resends the kernel unchanged. The line
+    that is wrong is the allocation, and what is wrong with it only shows next to the tensor it
+    was loaded from. A level whose only passing shape is square can never show this at all.
+    """
+    if func != "nc_matmul":
+        return []
+    shape = {k: v[1] for k, v in ops.items()}
+    st, mv = shape.get("stationary"), shape.get("moving")
+    if not (st and mv and st[0] != mv[0]):
+        return []
+    out = []
+    for role in ("stationary", "moving"):
+        name = ops[role][0].split("[", 1)[0].strip()
+        if not name.isidentifier():
+            continue
+        loads = [c for c in _later_calls(source, name, inside[0] - 1, (inside[0], lineno - 1))
+                 if c[1] in ("dma_copy", "tensor_copy") and c[2].get("dst", ("",))[0] == name
+                 and "src" in c[2]]
+        for line, _, roles in loads[-1:]:
+            src = roles["src"][0]
+            have, came = _shape(local.get(name)), _shape(local.get(src))
+            if have and came and have != came and math.prod(have) == math.prod(came):
+                out.append(f"`{name}` is {have}, but it was loaded on line {line} from `{src}`, "
+                           f"which is {came}: the same number of elements in a different layout. "
+                           f"A copy does not transpose or rearrange, so the tile holds `{src}`'s "
+                           f"values cut into rows at the wrong places. Allocate `{name}` with "
+                           f"the shape of `{src}`.")
+    return out
 
 
 def _origin(func, ops, limits, source, lineno, inside, params, pieces=False, error="",
@@ -700,21 +774,21 @@ def state(exc, path, source, watch=None, limit=700):
 
 
 def state_and_rules(exc, path, source, watch=None, limit=700, origin=False, pieces=False,
-                    ahead=False, names=False):
+                    ahead=False, names=False, layout=False):
     """(text, number of rules stated, whether it says what the old hint for this error tried
     to). Shapes alone say what was there; a rule says what was wrong with it. Only the second
     can stand in for advice."""
     try:
         return _state(exc, path, source, watch,
                       limit + (350 if origin else 0) + (250 if pieces else 0), origin, pieces,
-                      ahead, names)
+                      ahead, names, layout)
     except Exception as e:
         ERRORS.append(f"state: {type(e).__name__}: {e}")
         return "", 0, False
 
 
 def _state(exc, path, source, watch, limit, origin=False, pieces=False, ahead=False,
-           undefined=False):
+           undefined=False, askew=False):
     hit = _hit(exc, path, source)
     stmt = _statement_node(source, hit[0]) if hit else None
     if stmt is None:
@@ -788,6 +862,16 @@ def _state(exc, path, source, watch, limit, origin=False, pieces=False, ahead=Fa
             more, replaces = _origin(func, ops, limits, source, hit[0], inside, params, pieces,
                                      str(exc), ahead, assigned)
             rules += more
+            if askew:
+                skew = _loaded_askew(func, ops, source, hit[0], inside, local)
+                if skew:
+                    # While an operand has the wrong layout, the result tile only LOOKS wrong:
+                    # it is being compared with an operand that is itself the mistake. Measured
+                    # on that same kernel: told the result tile was off, the model resized a
+                    # tile that was right. One named change, and it is the operand.
+                    rules = [r for r in rules if not r.startswith(("The result of nc_matmul has",
+                                                                   "The tile to change is"))]
+                    rules += skew
         break
     # `undefined`, not `names`: this function already has a local called names, the Name nodes of
     # the statement, and a parameter of that name was silently always true. The replay against
@@ -891,6 +975,12 @@ PLANTS = [
          expect="nisa.tensor_copy(dst=result_sb, src=result_psum)",
          names=["`result_sb` does not exist at this line", "`result_psum` (64, 512) in psum",
                 "It is the dst of this tensor_copy", "same shape as `result_psum`"]),
+    dict(name="operand tile allocated transposed, then loaded", level=3, case=0,
+         old="lhs_tile = nl.ndarray(lhsT.shape,",
+         new="lhs_tile = nl.ndarray((lhsT.shape[1], lhsT.shape[0]),",
+         expect="nisa.nc_matmul(result_psum, lhs_tile, rhs_tile)",
+         layout=["`lhs_tile` is (64, 128), but it was loaded on line", "from `lhsT`, which is (128, 64)",
+                 "does not transpose", "Allocate `lhs_tile` with the shape of `lhsT`"]),
     # Not pass/fail. This asks the simulator a question: what does a result tile of the wrong
     # shape look like from outside? If the answer is a reshape error, then a kernel with no
     # reshape in it can produce one, and the line is the only thing that says where.
@@ -942,7 +1032,7 @@ def selftest():
     ok2 = shown(marked) == "On K=1: line 3, `x`, raised E: m" and key(marked) == "On K=1: raised E: m"
     print(f"  shown / key: located text shown, then removed     -> {'ok' if ok2 else 'FAIL'}")
     rc = 0 if ok and ok2 else 1
-    state_rc = origin_rc = pieces_rc = ahead_rc = names_rc = 0
+    state_rc = origin_rc = pieces_rc = ahead_rc = names_rc = layout_rc = 0
 
     try:
         import nki
@@ -968,7 +1058,14 @@ def selftest():
     print(f"      caught, with its line and real height -> {'ok' if ok else 'FAIL'}")
     print(f"      {said[:150]}")
     print(f"      and the untouched reference is not accused -> {'ok' if ok0 else 'FAIL'}")
-    tall_rc = 0 if ok and ok0 else 1
+    ref3 = open(os.path.join(here, "reference_level3.py")).read()
+    psum_out = ref3.replace("  return result\n", "  return result_psum\n")
+    said3 = output_on_chip(psum_out, "nki_matmul_basic_")
+    ok3 = psum_out != ref3 and "returns `result_psum`" in said3 and "psum" in said3 \
+        and all(output_on_chip(open(os.path.join(here, f"reference_level{n}.py")).read(),
+                               nkibench.LEVELS[n]["entry"]) == "" for n in (1, 2, 3, 4))
+    print(f"  an output returned from psum is caught, and no reference is -> {'ok' if ok3 else 'FAIL'}")
+    tall_rc = 0 if ok and ok0 and ok3 else 1
     print()
 
     # The worked example that --features example shows the model. It has to be right.
@@ -1064,6 +1161,13 @@ def selftest():
             print(f"      pieces says to cut, not to resize -> {'ok' if not gone else 'FAIL'}"
                   + (f"  missing: {gone}" if gone else ""))
             pieces_rc |= 0 if not gone else 1
+        if p.get("layout"):
+            skew = shown(state_and_rules(err, path, source, w, origin=True, layout=True)[0])
+            gone = [f for f in p["layout"] if f not in skew]
+            print(f"      layout  {skew.strip()[-330:] if skew else 'NOTHING SAID'}")
+            print(f"      layout traces the operand to the tensor it was loaded from -> "
+                  f"{'ok' if not gone else 'FAIL'}" + (f"  missing: {gone}" if gone else ""))
+            layout_rc |= 0 if not gone else 1
         if p.get("names"):
             lost = shown(state_and_rules(err, path, source, w, origin=True, names=True)[0])
             gone = [f for f in p["names"] if f not in lost]
@@ -1094,13 +1198,15 @@ def selftest():
     print("Worked example: " + ("it runs, it is correct, and no tile in it is too tall."
                                 if example_rc == 0 else
                                 "SOMETHING FAILED. Do not use --features example until this passes."))
+    print("Loaded askew: " + ("the planted operand was traced to its load." if layout_rc == 0 else
+                              "SOMETHING FAILED. Do not use --features layout until this passes."))
     print("Missing names: " + ("the planted name was explained." if names_rc == 0 else
                                "SOMETHING FAILED. Do not use --features names until this passes."))
     print("Looking ahead: " + ("every planted case was explained by its later use."
                                if ahead_rc == 0 else
                                "SOMETHING FAILED. Do not use --features ahead until this passes."))
     return rc | (state_rc << 1) | (origin_rc << 2) | (pieces_rc << 3) | (ahead_rc << 4) \
-        | (tall_rc << 5) | (names_rc << 6) | (example_rc << 7)
+        | (tall_rc << 5) | (names_rc << 6) | (example_rc << 7) | (layout_rc << 8)
 
 
 def replay(log_path, level=None, features=("locate", "state")):

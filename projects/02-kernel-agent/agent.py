@@ -86,7 +86,8 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #            several things is told each needs its own. Where it speaks, the old hint for that
 #            error is not sent, since the hint is what led the model wrong. Implies origin.
 #   strict   fail a kernel that allocates an on-chip tile with more than 128 rows, even when
-#            it only ever uses 128-row slices of it and so runs correctly on the simulator.
+#            it only ever uses 128-row slices of it and so runs correctly on the simulator; and
+#            one that returns an on-chip tile as its output instead of a tensor in HBM.
 #            The harness's own rule forbids this but can only see a literal number in the
 #            source. This is the one feature that changes a SCORE and not only a message: it
 #            fails kernels the harness passes. Implies state, whose watcher it uses.
@@ -98,14 +99,25 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #            example in the FIRST prompt of every level and reverted it: it made everything
 #            worse. This shows it only on the error it answers. A prompt change, not a
 #            checker change, and it must be reported as one.
+#   layout   when a matmul's operands disagree on the contraction dimension, check how each
+#            was loaded: a tile allocated (M, K) and filled from a (K, M) input holds the same
+#            elements in the wrong layout, and the copy that did it was accepted. Implies origin.
 KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes", "ahead",
-                  "strict", "names", "example"}
+                  "strict", "names", "example", "layout"}
 FEATURES = set()
 
 # Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
 # measured run is going on the same machine MUST use another path, or it overwrites the file the
 # run is about to load and the run grades the wrong kernel. diagnose.py --replay does.
 CANDIDATE_PATH = "/tmp/_agent_level{level}.py"
+
+# Every grade gets a file of its own. The original wrote every candidate to ONE path and loaded it
+# with importlib, which caches bytecode and checks the cache only by the source's size and its
+# modification time to the second. Two different kernels of the same length graded within the
+# same second -- four samples of a round often are -- so the second was graded as the first. Found
+# when one commit, replayed against itself, gave two results for one kernel. Reproduced in five
+# lines; see the note.
+_GRADED = [0]
 
 
 def grade(source, level):
@@ -154,7 +166,9 @@ def _grade(source, level):
     parts["rules"] = True
 
     spec = nkibench.LEVELS[level]
-    path = CANDIDATE_PATH.format(level=level)
+    _GRADED[0] += 1
+    base = CANDIDATE_PATH.format(level=level)
+    path = f"{base[:-3]}_{os.getpid()}_{_GRADED[0]}.py"
     with open(path, "w") as f:
         f.write(source)
     try:
@@ -208,7 +222,8 @@ def _grade(source, level):
                                                                origin="origin" in FEATURES,
                                                                pieces="pieces" in FEATURES,
                                                                ahead="ahead" in FEATURES,
-                                                               names="names" in FEATURES)
+                                                               names="names" in FEATURES,
+                                                               layout="layout" in FEATURES)
                                       if "state" in FEATURES else ("", 0, False))
             drop = rules and ("facts" in FEATURES
                               or ("internal" in FEATURES and not isinstance(e, AssertionError))
@@ -230,6 +245,8 @@ def _grade(source, level):
                    "and the device would not.")
         if "strict" in FEATURES and getattr(watch, "tall", None):
             m = diagnose.tall(watch, source)
+        if "strict" in FEATURES and not m:
+            m = diagnose.output_on_chip(source, spec["entry"]) or None
         if m:
             failures.append((nkibench.label(case, level), m))
             continue
@@ -753,7 +770,7 @@ def main():
     if asked - KNOWN_FEATURES:
         sys.exit(f"unknown --features {sorted(asked - KNOWN_FEATURES)}. Known: "
                  f"{sorted(KNOWN_FEATURES)}")
-    if asked & {"pieces", "ahead"}:
+    if asked & {"pieces", "ahead", "layout"}:
         asked.add("origin")
     if asked & {"facts", "origin", "internal", "strict", "names"}:
         asked.add("state")

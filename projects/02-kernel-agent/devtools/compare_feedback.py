@@ -56,7 +56,15 @@ def load(folder, tag):
     return mod
 
 
+_N = [0]
+
+
 def feedback(mod, code, level, flags):
+    # A fresh file for every grade, on both sides. Older commits wrote every candidate to one
+    # path, and importlib's bytecode cache then served one kernel's code for the next whenever
+    # the two had the same length and were written in the same second.
+    _N[0] += 1
+    mod.CANDIDATE_PATH = f"/tmp/_compare_{os.getpid()}_{_N[0]}_level{{level}}.py"
     if hasattr(mod, "FEATURES"):
         mod.FEATURES.clear()
         mod.FEATURES.update(flags)
@@ -67,6 +75,14 @@ def feedback(mod, code, level, flags):
 
 
 def main():
+    # The organisers' agent.py hardcodes its candidate path, so redirecting it is not possible.
+    # Without a bytecode cache there is nothing stale to serve: write none, and drop any left over.
+    sys.dont_write_bytecode = True
+    for stale in glob.glob("/tmp/__pycache__/_agent_level*") + glob.glob("/tmp/__pycache__/_compare_*"):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
     ap = argparse.ArgumentParser()
     ap.add_argument("old")
     ap.add_argument("new", nargs="?")

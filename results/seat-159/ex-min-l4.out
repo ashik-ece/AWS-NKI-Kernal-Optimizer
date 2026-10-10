@@ -1,0 +1,12 @@
+features ['example', 'internal', 'locate', 'origin', 'state', 'strict']
+endpoint http://localhost:8000/v1  model Qwen/Qwen3-8B
+
+################ run 1 of 5 ################
+
+=========== level 4: matmul, tiled ===========
+round 0: this round 0.62  best so far 0.62  (67.2s)
+  1 of 4 shapes passed. On K=256 M=256 N=1024: RUNS ON THE SIMULATOR, NOT ON THE CHIP: line 15, `sbuf_stationary = nl.ndarray((K, M), dtype=lhsT.dtype, buffer=nl.sbuf)`, allocates a tile in sbuf with 256 rows. A tile on the chip has at most 128 rows, and slicing it afterwards does not change that: the simulator checks the piece an instruction is given, not the tile it was cut from. Allocate the tile
+round 1: this round 0.10  best so far 0.62  (95.7s)
+  Rule violations, which score zero however fast the kernel is. Fix exactly these: no function named `nki_matmul_tiled_` is defined; that is the entry point this level is checked through. Start the function with exactly this line:  def nki_matmul_tiled_(lhsT, rhs):  and put @nki.jit on the line above it.
+round 2: this round 0.30  best so far 0.62  (95.9s)
+  0 of 4 shapes passed. On K=128 M=128 N=512: line 36, `nisa.tensor_copy(dst=out, src=psum)`, raised AssertionError: tensor_copy dst must be in ['sbuf', 'psum'], got shared_hbm `nisa.tensor_copy` only moves data between on-chip buffers, sbuf and psum. To reach HBM -- the tensor you allocated with buffer=nl.shared_hbm and will return -- use nisa.dma_copy instead. The usual sequence is nc_matmul into 
