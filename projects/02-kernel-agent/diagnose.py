@@ -650,26 +650,71 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False, err
     return direct + out, replaces
 
 
+def _missing_name(exc, stmt, source, local, watch, params):
+    """A sentence for a NameError, or ''.
+
+    Measured: the only level 3 runs still failing with `ahead` on. The model splits one tile into
+    three, renames them, and leaves the old name on one line. Told "name 'sbuf_tile' is not
+    defined", it sends the same code back until the loop gives up. The harness already does this
+    for an invented NKI function -- it lists the real ones. This does it for a variable: say
+    which tensors do exist at that line, and what the missing one is needed for.
+    """
+    m = re.search(r"name '(\w+)' is not defined", str(exc))
+    if not (isinstance(exc, NameError) and m):
+        return ""
+    missing = m.group(1)
+    have = []
+    for name, val in local.items():
+        shape = _shape(val)
+        if shape is not None and not isinstance(val, (types.ModuleType, type)):
+            have.append(f"`{name}` {shape}" + _where_text(_buffer(val, name, watch, params),
+                                                          name, params))
+    out = f"`{missing}` does not exist at this line: nothing above it assigns that name."
+    if have:
+        out += " The tensors that do exist here are " + ", ".join(have[:8]) + "."
+    for call in (c for part in _own_expressions(stmt) for c in ast.walk(part)
+                 if isinstance(c, ast.Call) and getattr(c.func, "attr", "") in OPERANDS):
+        given = dict(zip(OPERANDS[call.func.attr], call.args))
+        given.update({k.arg: k.value for k in call.keywords if k.arg})
+        text = {r: " ".join((ast.get_source_segment(source, n) or "").split())
+                for r, n in given.items()}
+        role = next((r for r, n in given.items() if isinstance(n, ast.Name) and n.id == missing),
+                    None)
+        func = call.func.attr
+        if func in ("dma_copy", "tensor_copy") and role in ("dst", "src"):
+            other = text.get("src" if role == "dst" else "dst")
+            if other:
+                out += (f" It is the {role} of this {func}, so allocate it above this line with "
+                        f"the same shape as `{other}`.")
+        elif func == "nc_matmul" and role == "dst" and "stationary" in text and "moving" in text:
+            out += (f" It is the result of this nc_matmul, so allocate it above this line in "
+                    f"psum, with the second dimension of `{text['stationary']}` then the second "
+                    f"dimension of `{text['moving']}`.")
+        break
+    return out
+
+
 def state(exc, path, source, watch=None, limit=700):
     """' At that line: ...' wrapped in MARK, or '' when there is nothing certain to say."""
     return state_and_rules(exc, path, source, watch, limit)[0]
 
 
 def state_and_rules(exc, path, source, watch=None, limit=700, origin=False, pieces=False,
-                    ahead=False):
+                    ahead=False, names=False):
     """(text, number of rules stated, whether it says what the old hint for this error tried
     to). Shapes alone say what was there; a rule says what was wrong with it. Only the second
     can stand in for advice."""
     try:
         return _state(exc, path, source, watch,
                       limit + (350 if origin else 0) + (250 if pieces else 0), origin, pieces,
-                      ahead)
+                      ahead, names)
     except Exception as e:
         ERRORS.append(f"state: {type(e).__name__}: {e}")
         return "", 0, False
 
 
-def _state(exc, path, source, watch, limit, origin=False, pieces=False, ahead=False):
+def _state(exc, path, source, watch, limit, origin=False, pieces=False, ahead=False,
+           undefined=False):
     hit = _hit(exc, path, source)
     stmt = _statement_node(source, hit[0]) if hit else None
     if stmt is None:
@@ -744,6 +789,13 @@ def _state(exc, path, source, watch, limit, origin=False, pieces=False, ahead=Fa
                                      str(exc), ahead, assigned)
             rules += more
         break
+    # `undefined`, not `names`: this function already has a local called names, the Name nodes of
+    # the statement, and a parameter of that name was silently always true. The replay against
+    # the previous commit caught it before it reached a seat.
+    if undefined:
+        lost = _missing_name(exc, stmt, source, local, watch, params)
+        if lost:
+            rules.append(lost)
     if not facts and not rules:
         return "", 0, False
     text = (" At that line: " + "; ".join(facts) + "." if facts else "") \
@@ -833,6 +885,12 @@ PLANTS = [
          expect="nisa.dma_copy(dst=lhs_tile, src=lhsT)",
          ahead=["`lhs_tile` is the wrong size here", "It is also written to on line 57 with",
                 "Allocate a separate tile for each thing"]),
+    dict(name="a tile used under a name nothing assigns", level=3, case=0,
+         old="nisa.tensor_copy(dst=result_sbuf, src=result_psum)",
+         new="nisa.tensor_copy(dst=result_sb, src=result_psum)",
+         expect="nisa.tensor_copy(dst=result_sb, src=result_psum)",
+         names=["`result_sb` does not exist at this line", "`result_psum` (64, 512) in psum",
+                "It is the dst of this tensor_copy", "same shape as `result_psum`"]),
     # Not pass/fail. This asks the simulator a question: what does a result tile of the wrong
     # shape look like from outside? If the answer is a reshape error, then a kernel with no
     # reshape in it can produce one, and the line is the only thing that says where.
@@ -884,7 +942,7 @@ def selftest():
     ok2 = shown(marked) == "On K=1: line 3, `x`, raised E: m" and key(marked) == "On K=1: raised E: m"
     print(f"  shown / key: located text shown, then removed     -> {'ok' if ok2 else 'FAIL'}")
     rc = 0 if ok and ok2 else 1
-    state_rc = origin_rc = pieces_rc = ahead_rc = 0
+    state_rc = origin_rc = pieces_rc = ahead_rc = names_rc = 0
 
     try:
         import nki
@@ -987,6 +1045,13 @@ def selftest():
             print(f"      pieces says to cut, not to resize -> {'ok' if not gone else 'FAIL'}"
                   + (f"  missing: {gone}" if gone else ""))
             pieces_rc |= 0 if not gone else 1
+        if p.get("names"):
+            lost = shown(state_and_rules(err, path, source, w, origin=True, names=True)[0])
+            gone = [f for f in p["names"] if f not in lost]
+            print(f"      names   {lost.strip()[-330:] if lost else 'NOTHING SAID'}")
+            print(f"      names says what exists and what the missing one is for -> "
+                  f"{'ok' if not gone else 'FAIL'}" + (f"  missing: {gone}" if gone else ""))
+            names_rc |= 0 if not gone else 1
         if p.get("ahead"):
             look = shown(state_and_rules(err, path, source, w, origin=True, ahead=True)[0])
             gone = [f for f in p["ahead"] if f not in look]
@@ -1007,11 +1072,13 @@ def selftest():
     print("Too tall for the chip: " + ("the planted tile was caught and the reference was not."
                                        if tall_rc == 0 else
                                        "SOMETHING FAILED. Do not use --features strict until this passes."))
+    print("Missing names: " + ("the planted name was explained." if names_rc == 0 else
+                               "SOMETHING FAILED. Do not use --features names until this passes."))
     print("Looking ahead: " + ("every planted case was explained by its later use."
                                if ahead_rc == 0 else
                                "SOMETHING FAILED. Do not use --features ahead until this passes."))
     return rc | (state_rc << 1) | (origin_rc << 2) | (pieces_rc << 3) | (ahead_rc << 4) \
-        | (tall_rc << 5)
+        | (tall_rc << 5) | (names_rc << 6)
 
 
 def replay(log_path, level=None, features=("locate", "state")):

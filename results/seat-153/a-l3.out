@@ -206,3 +206,53 @@ round 1: this round 0.30  best so far 0.30  (63.4s)
   0 of 1 shapes passed. On K=128 M=64 N=512: line 20, `nisa.nc_matmul(dst=psum_tile, stationary=sbuf_lhs_tile, moving=sbuf_rhs_tile[0:128, 0:512])`, raised ValueError: cannot reshape array of size 32768 into shape (128,512) At that line: `psum_tile` is (128, 512) in psum; `sbuf_lhs_tile` is (128, 64) in sbuf; `sbuf_rhs_tile` is (128, 512) in sbuf; moving `sbuf_rhs_tile[0:128, 0:512]` is (128, 512) i
 round 2: this round 0.30  best so far 0.30  (63.2s)
   0 of 1 shapes passed. On K=128 M=64 N=512: line 23, `nisa.tensor_copy(dst=sbuf_tile, src=psum_tile)`, raised NameError: name 'sbuf_tile' is not defined At that line: `psum_tile` is (64, 512) in psum.
+round 3: same failure again (0.30, best so far 0.30)
+  same failure 2x — adding a ledger of 3 failed attempts to break the repeat
+round 4: this round 0.30  best so far 0.30  (63.6s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 23, `nisa.tensor_copy(dst=sbuf_rhs_tile, src=psum_tile)`, raised ValueError: shape mismatch: value array of shape (32768,) could not be broadcast to indexing result of shape (65536,) At that line: `sbuf_rhs_tile` is (128, 512) in sbuf; `psum_tile` is (64, 512) in psum. The two sides of a tensor_copy must hold the same number of elements, because it d
+round 5: this round 0.30  best so far 0.30  (70.1s)
+  0 of 1 shapes passed. On K=128 M=64 N=512: line 27, `nisa.dma_copy(dst=out, src=temp_tile)`, raised AssertionError: dma_copy requires src and dst to have the same number of elements, got src=32768, dst=64 The tile you allocated holds 64 elements but you copied 32768 into it. nisa.dma_copy does not slice or broadcast: allocate the destination with EXACTLY the shape of the slice you are moving. If y
+round 6: this round 1.00  best so far 1.00  (68.7s)
+  Correct on every shape. MEMORY BOUND: 19.7 Flops/Byte against a ridge of 222, so 9% of what the engine could sustain. The engine is idle waiting for data. Find reuse -- make the same bytes do more work -- rather than tuning the arithmetic. 11.3x more reuse needed.
+  SOLVED on round 6. Correct on every shape. MEMORY BOUND: 19.7 Flops/Byte against a ridge of 222, so 9% of what the engine could sustain. The engine is idle waiting for data. Find reuse -- make the same bytes do more work -- rather than tuning the arithmetic. 11.3x more reuse needed.
+  ---------------- the kernel ----------------
+  import nki
+  import nki.isa as nisa
+  import nki.language as nl
+
+  @nki.jit
+  def nki_matmul_basic_(lhsT, rhs):
+      # Allocate output buffer in shared HBM
+      out = nl.ndarray(shape=(64, 512), dtype=lhsT.dtype, buffer=nl.shared_hbm)
+      # Allocate SBUF for lhsT and rhs tiles
+      sbuf_lhs_tile = nl.ndarray(shape=(128, 64), dtype=nl.float32, buffer=nl.sbuf)
+      sbuf_rhs_tile = nl.ndarray(shape=(128, 512), dtype=nl.float32, buffer=nl.sbuf)
+      psum_tile = nl.ndarray(shape=(64, 512), dtype=nl.float32, buffer=nl.psum)
+      temp_tile = nl.ndarray(shape=(64, 512), dtype=nl.float32, buffer=nl.sbuf)
+    
+      # Copy lhsT to SBUF
+      nisa.dma_copy(dst=sbuf_lhs_tile, src=lhsT)
+      # Copy rhs to SBUF
+      nisa.dma_copy(dst=sbuf_rhs_tile[0:128, 0:512], src=rhs)
+    
+      # Perform matrix multiplication
+      nisa.nc_matmul(dst=psum_tile, stationary=sbuf_lhs_tile, moving=sbuf_rhs_tile[0:128, 0:512])
+    
+      # Copy result from PSUM to temporary SBUF
+      nisa.tensor_copy(dst=temp_tile, src=psum_tile)
+    
+      # Copy result from temporary SBUF to shared HBM
+      nisa.dma_copy(dst=out, src=temp_tile)
+      return out
+  -------------------------------------------
+
+=========== summary ===========
+  level 3  reward 1.00 after 7 round(s)  SOLVED
+  solved 1/1
+
+=========== over 5 runs ===========
+  level 3: solved 5/5  best 1.00  worst 1.00  mean 1.00  all=[1.0, 1.0, 1.0, 1.0, 1.0]
+
+  Report the rate, not your best run. A level that solves 1 in 3 times is not solved.
+
+attempts logged to a-l3.jsonl
