@@ -29,7 +29,11 @@ the organisers' untouched code. Levels 1, 3 and 4 never varied across them.
 
 A one-sentence prompt hint on level 1 ("a per-window sum followed by a scale; no matrix multiplication")
 scored 0/5 but **fixed the algorithm**: matrix multiply in 0 of 104 attempts (baseline 160 of 160), `nl.sum`
-in 103. The detailed recipe: **[18:00: l1-detailed-b]**.
+in 103. Given the full recipe instead (strided `.ap()` view, `nl.sum`, scale by `1/(p*p)`), it followed it in
+100 of 100 attempts and still scored 0/5: 80 attempts failed copying the input into a fixed `(C, 128, 128)`
+tile, the same tile-sizing error as level 3, answered with the same misleading `128x512` example. So level 1
+is blocked by the error level 3's checker fixes, not only by the algorithm. With the checker as well:
+**[18:00: hint-checker-l1, 16 rounds]**.
 
 ## What made level 3 move
 
@@ -59,7 +63,9 @@ Six repro kernels in `../findings/` (that is, `projects/02-kernel-agent/findings
 with 256- and 512-row SBUF tiles (4 of 4 shapes), and a level 3 kernel returning its PSUM tile (1 of 1). The
 rule scan catches a tile written `(256, M)` but not `(K, M)`. Two messages mislead: "cannot reshape" for a
 kernel with no reshape, and a moving-operand limit when both operands are within limits. And the agent's
-reused file path served a stale kernel's bytecode.
+reused file path served a stale kernel's bytecode. Any level 4 solve should be re-checked with
+`--features strict`. Not fixed, a finding only: about two thirds of all "`nki.isa` has no attribute" failures
+are `multiply`, and the agent's hint says nothing similar exists; it is `nl.multiply`.
 
 ## Why it was stuck (taxonomy of all 416 baseline attempts)
 
@@ -90,7 +96,8 @@ reused file path served a stale kernel's bytecode.
 
 One wall fell cleanly. Level 3 went from 0 of 15 to [18:00] of [18:00] runs, every solve within the chip's
 rules, by changing only what the checker says. Level 4's kernels learned to tile, but their higher score
-depends on a tile the harness fails to reject, so honestly it is still 0.62. Level 1 needs the algorithm, not
-better errors: one sentence of prompt fixed the method, not the score. The largest lesson: the existing
+depends on a tile the harness fails to reject, so honestly it is still 0.62. Level 1 needs the algorithm and then
+the same tile fix as level 3: one sentence of prompt fixed the method, and the full recipe was followed
+exactly, but both stalled on the tile-sizing error. The largest lesson: the existing
 feedback was not just vague but misleading, and what fixed it was telling the model which tile is wrong, in
 which dimension, which way, and where it was allocated; naming the failing line alone did nothing.

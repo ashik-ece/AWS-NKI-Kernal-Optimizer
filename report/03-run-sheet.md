@@ -144,6 +144,17 @@ branch. The jsonl holds 6 sessions; only the last (104 attempts, reps 0-4, round
 Algorithm moved: `nc_matmul` 0/104, `nl.sum` 103/104, `1/p^2` scale 79/104. Failures: fixed `(128, 128)` tile
 80, missing `pool_size` argument 24. Not in `RUNS.tsv` (run outside `pod.sh run`).
 
+### Prompt C, detailed recipe (seat 155, `Perumal/Level1-Prompt` at `02ebfe1`)
+
+Code `ce61bac`, `--features '' --level 1`, frozen settings, started 17:19 (`l1-detailed-b`; row in that
+branch's `results/RUNS.tsv`). Logs at `results/seat-155/l1-detailed-b.{jsonl,out}` on that branch. 100
+attempts, 5 runs, level 1 only, round-0 prompt 2,670 chars in all 20. Result 0/5, always 0.30. Recipe
+followed in 100/100: `.ap(` 100, `nl.sum` 100, `1.0 / (p * p)` 100, `nc_matmul` 0, `0.5` 0 (but reduces
+`axis=[2, 4]`, not the hint's `[3, 4]`). Failures: `dma_copy` into a fixed `(C, 128, 128)` tile 80, out of
+bounds 20; 3 distinct kernels; every run stops at round 5 on repeats. `l1-detailed` (same commit) is the
+earlier launch that ran `--all` because `ce61bac`'s `pod.sh` has no level argument: one level 1 repeat,
+the same kernels; not counted.
+
 ### 15:33 pull (`e780bf9`): `ahead` and `pieces` on `16dcf94`, partial
 
 | Log | Flags | Completed runs | Result |
