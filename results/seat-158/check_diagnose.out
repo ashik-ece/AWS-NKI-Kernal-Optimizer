@@ -13,6 +13,8 @@ Planting known bugs in the reference kernels and checking the located line.
 
   the worked tiling example: runs, copies exactly, no tile over 128 rows -> ok
 
+  control: reference level 1 on C,H,W=(32, 32, 32) pool=2 -> runs
+           and gives the same output while watched -> ok  (3 tile allocations seen)
   control: reference level 3 on K=128 M=64 N=512 -> runs
            and gives the same output while watched -> ok  (5 tile allocations seen)
   control: reference level 4 on K=256 M=256 N=1024 -> runs
@@ -100,6 +102,13 @@ Planting known bugs in the reference kernels and checking the located line.
       state reports every planted fact -> ok
       layout  ationary's is 64 and moving's is 128. `lhs_tile` is (64, 128), but it was loaded on line 56 from `lhsT`, which is (128, 64): the same number of elements in a different layout. A copy does not transpose or rearrange, so the tile holds `lhsT`'s values cut into rows at the wrong places. Allocate `lhs_tile` with the shape of `lhsT`.
       layout traces the operand to the tensor it was loaded from -> ok
+  access pattern that does not walk the partitions: ok
+      raised   AssertionError: ap() pattern has invalid partition stride. Partition step 1 must equal tensor free dimension size 1024. Pattern: [[1, 32], [64, 16], [2, 16], [32, 2],
+      located  line 57, `pool_view = in_tile.ap([ [1, sz_p], # partition stride [sz_pool * sz_win, sz_hin // sz_pool], # outer row stride [sz_pool, sz_win // sz_pool], # outer col stride [sz_win, sz_pool], # inner row stride  ...`
+      state   At that line: `in_tile` is (32, 32, 32) in sbuf; `sz_p` = 32; `sz_pool` = 2; `sz_win` = 32; `sz_hin` = 32.
+      state reports every planted fact -> ok
+      apview   the view: `count` positions, `step` elements apart in the tile's storage. `in_tile` is (32, 32, 32), so one move is 1024 along dimension 0, 32 along dimension 1, 1 along dimension 2. The first pair walks the partitions, so its step must be one partition's size, 1024, and its count the number of partitions, 32: yours is [1, 32].
+      apview explains the access pattern -> ok
   QUESTION, result tile of the wrong shape:
       raised   ValueError: cannot reshape array of size 32768 into shape (1,64)
       located  line 64, `nisa.nc_matmul(result_psum, lhs_tile, rhs_tile)`
@@ -114,6 +123,7 @@ Origin of the tile: every planted line was traced.
 In pieces: every planted case was told to cut.
 Too tall for the chip: the planted tile was caught and the reference was not.
 Worked example: it runs, it is correct, and no tile in it is too tall.
+Access patterns: the planted pattern was explained.
 Loaded askew: the planted operand was traced to its load.
 Missing names: the planted name was explained.
 Looking ahead: every planted case was explained by its later use.

@@ -796,6 +796,77 @@ def _axis_uses(source, name, after, inside):
     return sorted(found)
 
 
+def what_matmul_computed(lhsT, rhs, got, tk=128, tm=128, tn=512, tol=2e-2):
+    """For a matmul whose numbers are wrong: what DID it compute? A sentence, or ''.
+
+    Measured on level 4, seeded from the agent's own level 3 kernel: the model wrote three
+    correctly sized loops on round 0, then sent the same kernel back 105 times, told only that
+    "most elements are wrong". Its output was not noise. Each block was one product of a single
+    128-row piece of lhsT with a single 128-row piece of rhs -- the wrong piece of rhs, and only
+    one piece of K where the answer adds them all. Those two facts can be read off the numbers.
+
+    Takes the first output block that is wrong and tries, against it: every single product
+    lhsT[i].T @ rhs[j] of 128-row pieces, and every run of consecutive aligned pieces summed. It
+    names the match in rows and says which of the two properties a matmul needs is missing. It
+    states what was computed, never the code.
+    """
+    import numpy as np
+    lhsT, rhs, got = (np.asarray(a, np.float64) for a in (lhsT, rhs, got))
+    K, M = lhsT.shape
+    N = rhs.shape[1]
+    if rhs.shape[0] != K or got.shape != (M, N):
+        return ""
+    want = lhsT.T @ rhs
+    scale = float(np.sqrt((want ** 2).mean())) or 1.0
+    pk = list(range(0, K, tk))
+    for m0 in range(0, M, tm):
+        for n0 in range(0, N, tn):
+            sl = (slice(m0, m0 + tm), slice(n0, n0 + tn))
+            block = got[sl]
+            if np.abs(block - want[sl]).max() / scale <= tol:
+                continue
+            def close(x):
+                return np.abs(block - x).max() / scale <= tol
+            if np.abs(block).max() / scale <= 1e-9:
+                return (f"Output rows {m0}-{m0 + tm - 1}, columns {n0}-{n0 + tn - 1} are all zero: "
+                        f"nothing was written there.")
+            rows = lambda a: f"{a}-{min(a + tk, K) - 1}"
+            for i in pk:
+                for j in pk:
+                    prod = lhsT[i:i + tk, m0:m0 + tm].T @ rhs[j:j + tk, n0:n0 + tn]
+                    if close(prod):
+                        parts = []
+                        if i != j:
+                            parts.append(f"the two operands' rows differ, {rows(i)} of lhsT against "
+                                         f"{rows(j)} of rhs, and a matmul contracts the SAME rows "
+                                         f"of both: whatever index picks lhsT's rows has to pick "
+                                         f"rhs's rows too")
+                        if len(pk) > 1:
+                            parts.append(f"it is one {tk}-row piece of K where the answer is the "
+                                         f"sum over all {len(pk)} pieces, so the products over K "
+                                         f"are not adding up in one PSUM tile before it is copied "
+                                         f"out")
+                        return (f"What the kernel computed: output rows {m0}-{m0 + tm - 1}, columns "
+                                f"{n0}-{n0 + tn - 1} equal exactly lhsT[{rows(i)}, {m0}-{m0 + tm - 1}].T @ "
+                                f"rhs[{rows(j)}, {n0}-{n0 + tn - 1}]: a single product. "
+                                + " ".join(("" if q == 0 else "Also, ")
+                                           + (p[0].upper() + p[1:] if q == 0 else p) + "."
+                                           for q, p in enumerate(parts)))
+            for a in range(len(pk)):
+                for b in range(a + 1, len(pk) + 1):
+                    if (a, b) == (0, len(pk)):
+                        continue
+                    part = sum(lhsT[pk[c]:pk[c] + tk, m0:m0 + tm].T @ rhs[pk[c]:pk[c] + tk, n0:n0 + tn]
+                               for c in range(a, b))
+                    if close(part):
+                        return (f"What the kernel computed: output rows {m0}-{m0 + tm - 1}, columns "
+                                f"{n0}-{n0 + tn - 1} are the sum over K rows {pk[a]}-{min(pk[b - 1] + tk, K) - 1} "
+                                f"only, {b - a} of the {len(pk)} pieces of K. The rest of K never "
+                                f"reaches that block.")
+            return ""
+    return ""
+
+
 def _missing_name(exc, stmt, source, local, watch, params):
     """A sentence for a NameError, or ''.
 
@@ -1125,6 +1196,22 @@ def selftest():
         return rc
     print(f"\n  simulator: nki {getattr(nki, '__version__', '?')} from {os.path.dirname(nki.__file__)}\n")
 
+    # What a wrong matmul computed: rhs sliced with the M index, and one K piece written per pass.
+    import numpy as _np
+    r = _np.random.default_rng(3)
+    lhsT_, rhs_ = r.standard_normal((256, 256)), r.standard_normal((256, 1024))
+    bad = _np.zeros((256, 1024))
+    for k0 in (0, 128):
+        for m0 in (0, 128):
+            for n0 in (0, 512):
+                bad[m0:m0 + 128, n0:n0 + 512] = lhsT_[k0:k0 + 128, m0:m0 + 128].T @ rhs_[m0:m0 + 128, n0:n0 + 512]
+    said = what_matmul_computed(lhsT_, rhs_, bad)
+    okc = ("lhsT[128-255, 0-127].T @ rhs[0-127, 0-511]" in said and "contracts the SAME rows" in said
+           and "sum over all 2 pieces" in said and what_matmul_computed(lhsT_, rhs_, lhsT_.T @ rhs_) == "")
+    print(f"  what a wrong matmul computed, named from its numbers -> {'ok' if okc else 'FAIL'}")
+    print(f"      {said[:230]}")
+    computed_rc = 0 if okc else 1
+
     # A tile taller than the chip has, allocated by a symbolic size and never passed whole to an
     # instruction, so nothing raises. Only the allocation watcher can see it.
     ref4 = open(os.path.join(here, "reference_level4.py")).read()
@@ -1289,6 +1376,8 @@ def selftest():
     print("Worked example: " + ("it runs, it is correct, and no tile in it is too tall."
                                 if example_rc == 0 else
                                 "SOMETHING FAILED. Do not use --features example until this passes."))
+    print("What it computed: " + ("the planted wrong matmul was named." if computed_rc == 0 else
+                                  "SOMETHING FAILED. Do not use --features computed until this passes."))
     print("Access patterns: " + ("the planted pattern was explained." if apview_rc == 0 else
                                  "SOMETHING FAILED. Do not use --features apview until this passes."))
     print("Loaded askew: " + ("the planted operand was traced to its load." if layout_rc == 0 else
@@ -1299,7 +1388,8 @@ def selftest():
                                if ahead_rc == 0 else
                                "SOMETHING FAILED. Do not use --features ahead until this passes."))
     return rc | (state_rc << 1) | (origin_rc << 2) | (pieces_rc << 3) | (ahead_rc << 4) \
-        | (tall_rc << 5) | (names_rc << 6) | (example_rc << 7) | (layout_rc << 8) | (apview_rc << 9)
+        | (tall_rc << 5) | (names_rc << 6) | (example_rc << 7) | (layout_rc << 8) | (apview_rc << 9) \
+        | (computed_rc << 10)
 
 
 def replay(log_path, level=None, features=("locate", "state")):

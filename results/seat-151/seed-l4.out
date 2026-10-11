@@ -1,0 +1,114 @@
+features ['example', 'internal', 'locate', 'origin', 'seed', 'state', 'strict']
+endpoint http://localhost:8000/v1  model Qwen/Qwen3-8B
+
+################ run 1 of 5 ################
+
+=========== level 4: matmul, tiled ===========
+  sample diversity: 2/4 distinct feedback outcome(s)
+round 0: this round 0.62  best so far 0.62  (98.9s)
+  1 of 4 shapes passed. On K=256 M=256 N=1024: NUMERICAL MISMATCH: worst error 5.86 of the output's RMS (15.94), tolerance 0.02.
+  at index (72, 438): expected +68.0917, got -25.3473
+  98.2% of elements are outside tolerance
+  most elements are wrong, so this is the core arithmetic or the operand layout, not an edge case
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 1: same failure again (0.62, best so far 0.62)
+  same failure 2x — adding a ledger of 1 failed attempts to break the repeat
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 2: this round 0.30  best so far 0.62  (85.0s)
+  0 of 4 shapes passed. On K=128 M=128 N=512: line 41, `nisa.tensor_copy(dst=out[m_tile:m_tile+TILE_M, n_tile:n_tile+TILE_N], src=psum)`, raised AssertionError: tensor_copy dst must be in ['sbuf', 'psum'], got shared_hbm `nisa.tensor_copy` only moves data between on-chip buffers, sbuf and psum. To reach HBM -- the tensor you allocated with buffer=nl.shared_hbm and will return -- use nisa.dma_copy in
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 3: this round 0.62  best so far 0.62  (90.8s)
+  1 of 4 shapes passed. On K=256 M=256 N=1024: NUMERICAL MISMATCH: worst error 5.86 of the output's RMS (15.94), tolerance 0.02.
+  at index (72, 438): expected +68.0917, got -25.3473
+  98.2% of elements are outside tolerance
+  most elements are wrong, so this is the core arithmetic or the operand layout, not an edge case
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 4: same failure again (0.62, best so far 0.62)
+  STOPPING this level: this failure for the 4th time, alternating with 1 other(s). The agent is cycling between a fixed set of mistakes rather than converging, so more rounds will not help. Failures seen:
+    4x  1 of 4 shapes passed. On K=256 M=256 N=1024: NUMERICAL MISMATCH: worst error 5.86 of the output's RMS (15.94),
+    1x  0 of 4 shapes passed. On K=128 M=128 N=512: raised AssertionError: tensor_copy dst must be in ['sbuf', 'psum']
+
+=========== summary ===========
+  level 4  reward 0.62 after 5 round(s)
+  solved 0/1
+
+################ run 2 of 5 ################
+
+=========== level 4: matmul, tiled ===========
+  sample diversity: 2/4 distinct feedback outcome(s)
+round 0: this round 0.62  best so far 0.62  (98.0s)
+  1 of 4 shapes passed. On K=256 M=256 N=1024: NUMERICAL MISMATCH: worst error 5.86 of the output's RMS (15.94), tolerance 0.02.
+  at index (72, 438): expected +68.0917, got -25.3473
+  98.2% of elements are outside tolerance
+  most elements are wrong, so this is the core arithmetic or the operand layout, not an edge case
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 1: same failure again (0.62, best so far 0.62)
+  same failure 2x — adding a ledger of 1 failed attempts to break the repeat
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 2: this round 0.30  best so far 0.62  (84.8s)
+  0 of 4 shapes passed. On K=128 M=128 N=512: line 41, `nisa.tensor_copy(dst=out[m_tile:m_tile+TILE_M, n_tile:n_tile+TILE_N], src=psum)`, raised AssertionError: tensor_copy dst must be in ['sbuf', 'psum'], got shared_hbm `nisa.tensor_copy` only moves data between on-chip buffers, sbuf and psum. To reach HBM -- the tensor you allocated with buffer=nl.shared_hbm and will return -- use nisa.dma_copy in
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 3: this round 0.62  best so far 0.62  (91.1s)
+  1 of 4 shapes passed. On K=256 M=256 N=1024: NUMERICAL MISMATCH: worst error 5.86 of the output's RMS (15.94), tolerance 0.02.
+  at index (72, 438): expected +68.0917, got -25.3473
+  98.2% of elements are outside tolerance
+  most elements are wrong, so this is the core arithmetic or the operand layout, not an edge case
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 4: same failure again (0.62, best so far 0.62)
+  STOPPING this level: this failure for the 4th time, alternating with 1 other(s). The agent is cycling between a fixed set of mistakes rather than converging, so more rounds will not help. Failures seen:
+    4x  1 of 4 shapes passed. On K=256 M=256 N=1024: NUMERICAL MISMATCH: worst error 5.86 of the output's RMS (15.94),
+    1x  0 of 4 shapes passed. On K=128 M=128 N=512: raised AssertionError: tensor_copy dst must be in ['sbuf', 'psum']
+
+=========== summary ===========
+  level 4  reward 0.62 after 5 round(s)
+  solved 0/1
+
+################ run 3 of 5 ################
+
+=========== level 4: matmul, tiled ===========
+  sample diversity: 2/4 distinct feedback outcome(s)
+round 0: this round 0.62  best so far 0.62  (97.9s)
+  1 of 4 shapes passed. On K=256 M=256 N=1024: NUMERICAL MISMATCH: worst error 5.86 of the output's RMS (15.94), tolerance 0.02.
+  at index (72, 438): expected +68.0917, got -25.3473
+  98.2% of elements are outside tolerance
+  most elements are wrong, so this is the core arithmetic or the operand layout, not an edge case
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 1: same failure again (0.62, best so far 0.62)
+  same failure 2x — adding a ledger of 1 failed attempts to break the repeat
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 2: this round 0.30  best so far 0.62  (84.6s)
+  0 of 4 shapes passed. On K=128 M=128 N=512: line 41, `nisa.tensor_copy(dst=out[m_tile:m_tile+TILE_M, n_tile:n_tile+TILE_N], src=psum)`, raised AssertionError: tensor_copy dst must be in ['sbuf', 'psum'], got shared_hbm `nisa.tensor_copy` only moves data between on-chip buffers, sbuf and psum. To reach HBM -- the tensor you allocated with buffer=nl.shared_hbm and will return -- use nisa.dma_copy in
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 3: this round 0.62  best so far 0.62  (90.9s)
+  1 of 4 shapes passed. On K=256 M=256 N=1024: NUMERICAL MISMATCH: worst error 5.86 of the output's RMS (15.94), tolerance 0.02.
+  at index (72, 438): expected +68.0917, got -25.3473
+  98.2% of elements are outside tolerance
+  most elements are wrong, so this is the core arithmetic or the operand layout, not an edge case
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 4: same failure again (0.62, best so far 0.62)
+  STOPPING this level: this failure for the 4th time, alternating with 1 other(s). The agent is cycling between a fixed set of mistakes rather than converging, so more rounds will not help. Failures seen:
+    4x  1 of 4 shapes passed. On K=256 M=256 N=1024: NUMERICAL MISMATCH: worst error 5.86 of the output's RMS (15.94),
+    1x  0 of 4 shapes passed. On K=128 M=128 N=512: raised AssertionError: tensor_copy dst must be in ['sbuf', 'psum']
+
+=========== summary ===========
+  level 4  reward 0.62 after 5 round(s)
+  solved 0/1
+
+################ run 4 of 5 ################
+
+=========== level 4: matmul, tiled ===========
+  sample diversity: 3/4 distinct feedback outcome(s)
+round 0: this round 0.62  best so far 0.62  (95.5s)
+  1 of 4 shapes passed. On K=256 M=256 N=1024: NUMERICAL MISMATCH: worst error 5.86 of the output's RMS (15.94), tolerance 0.02.
+  at index (72, 438): expected +68.0917, got -25.3473
+  98.2% of elements are outside tolerance
+  most elements are wrong, so this is the core arithmetic or the operand layout, not an edge case
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 1: same failure again (0.62, best so far 0.62)
+  same failure 2x — adding a ledger of 1 failed attempts to break the repeat
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 2: this round 0.30  best so far 0.62  (84.7s)
+  0 of 4 shapes passed. On K=128 M=128 N=512: line 41, `nisa.tensor_copy(dst=out[m_tile:m_tile+TILE_M, n_tile:n_tile+TILE_N], src=psum)`, raised AssertionError: tensor_copy dst must be in ['sbuf', 'psum'], got shared_hbm `nisa.tensor_copy` only moves data between on-chip buffers, sbuf and psum. To reach HBM -- the tensor you allocated with buffer=nl.shared_hbm and will return -- use nisa.dma_copy in
+  sample diversity: 1/4 distinct feedback outcome(s)
+round 3: this round 0.30  best so far 0.62  (90.4s)
+  0 of 4 shapes passed. On K=128 M=128 N=512: line 41, `nisa.tensor_copy(dst=nl.sbuf, src=psum)`, raised AttributeError: 'MemoryRegion' object has no attribute 'buffer' A MemoryRegion is not a numpy array, so it has no `buffer`. Use the nl/nisa functions instead. At that line: `psum` is (128, 512) in psum.

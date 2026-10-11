@@ -110,8 +110,10 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #   apview   for a failing tile.ap([[step, count], ...]), say what each pair means on the
 #            model's own tile, which pair is off, and how many axes its own later code expects.
 #            Where it speaks, the old advice for that error is not sent. Implies state.
+#   computed for a matmul whose numbers are wrong, say what it computed instead: which rows of
+#            lhsT and of rhs each wrong output block was built from, and whether K was summed.
 KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes", "ahead",
-                  "strict", "names", "example", "layout", "seed", "apview"}
+                  "strict", "names", "example", "layout", "seed", "apview", "computed"}
 
 SEED_KERNEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "findings",
                            "agent_solved_level3_1.py")
@@ -270,6 +272,11 @@ def _grade(source, level):
         m = (nkibench.check_inputs_untouched(before, args)
              or nkibench.describe_mismatch(got, want)
              or nkibench.check_traffic_bar(level, counted, args, want))
+        if m and "computed" in FEATURES and m.startswith("NUMERICAL MISMATCH") \
+                and spec["ref"] is nkibench.ref_matmul:
+            said = diagnose.what_matmul_computed(*args, got)
+            if said:
+                m += f"{diagnose.MARK}\n  {said}{diagnose.MARK}"
         # A simulator warning about a hardware-correctness hazard counts as a failure even when the
         # numbers happen to match on CPU: the kernel would be wrong on the device.
         hazards = [w for w in counted.get("warnings", [])
