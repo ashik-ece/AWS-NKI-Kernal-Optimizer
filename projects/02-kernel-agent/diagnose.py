@@ -320,7 +320,7 @@ def _where_text(buf, name, params):
 
 _SAFE_NODES = (ast.Expression, ast.Name, ast.Load, ast.Constant, ast.BinOp, ast.UnaryOp, ast.Add,
                ast.Sub, ast.Mult, ast.FloorDiv, ast.Mod, ast.USub, ast.Subscript, ast.Slice,
-               ast.Tuple, ast.Attribute, ast.Call)
+               ast.Tuple, ast.List, ast.Attribute, ast.Call)
 _SAFE_CALLS = {"min", "max", "int", "len", "abs"}
 
 
@@ -726,6 +726,76 @@ def _origin(func, ops, limits, source, lineno, inside, params, pieces=False, err
     return direct + out, replaces
 
 
+def _ap_view(stmt, source, frame, local, lineno, inside):
+    """Sentences for an access pattern, tile.ap([[step, count], ...]), on the failing line, or [].
+
+    Measured on level 1: with the plan in the prompt, the model wrote the same three-pair pattern
+    100 times out of 100 and every run ended on "ap() pattern has invalid partition stride". The
+    simulator's message is true but assumes the reader knows what a step is. This says what each
+    pair means, measured on the model's own tile, which pair is off, and -- from the model's own
+    later code -- how many axes the view must have. It does not write the pattern.
+    """
+    out = []
+    for call in (c for part in _own_expressions(stmt) for c in ast.walk(part)
+                 if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "ap"
+                 and isinstance(c.func, ast.Attribute) and c.args):
+        base = call.func.value
+        tile = base.id if isinstance(base, ast.Name) else None
+        shape = _shape(local.get(tile)) if tile else None
+        pattern = _evaluate(call.args[0], frame)
+        try:
+            pattern = [[int(a), int(b)] for a, b in pattern]
+        except Exception:
+            pattern = None
+        if not shape or not pattern:
+            continue
+        sizes = [math.prod(shape[i + 1:]) for i in range(len(shape))]
+        dims = ", ".join(f"{sz} along dimension {i}" for i, sz in enumerate(sizes))
+        out.append(f"In `.ap([[step, count], ...])` each pair is one axis of the view: `count` "
+                   f"positions, `step` elements apart in the tile's storage. `{tile}` is {shape}, "
+                   f"so one move is {dims}.")
+        if pattern[0][0] != sizes[0] or pattern[0][1] != shape[0]:
+            out.append(f"The first pair walks the partitions, so its step must be one partition's "
+                       f"size, {sizes[0]}, and its count the number of partitions, {shape[0]}: "
+                       f"yours is {pattern[0]}.")
+        span = sum((n - 1) * st for st, n in pattern[1:])
+        if span >= sizes[0]:
+            out.append(f"The other pairs together reach {span + 1} elements into a partition, "
+                       f"which holds only {sizes[0]}.")
+        # How many axes the model's own code expects the view to have.
+        view = (stmt.targets[0].id if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name) else None)
+        if view:
+            for line, func, node in _axis_uses(source, view, lineno, inside):
+                need = max(node) + 1
+                if need > len(pattern):
+                    out.append(f"Line {line} reduces axes {node} of `{view}`, so the view needs at "
+                               f"least {need} axes, one pair each; this pattern has {len(pattern)}.")
+                break
+    return out
+
+
+def _axis_uses(source, name, after, inside):
+    """[(line, function, axes)] for later calls like nl.sum(name, axis=[...])."""
+    found = []
+    try:
+        for node in ast.walk(ast.parse(source)):
+            if not (isinstance(node, ast.Call) and after < node.lineno <= inside[1] and node.args
+                    and isinstance(node.args[0], ast.Name) and node.args[0].id == name):
+                continue
+            for k in node.keywords:
+                if k.arg == "axis":
+                    try:
+                        axes = ast.literal_eval(k.value)
+                        axes = list(axes) if isinstance(axes, (list, tuple)) else [int(axes)]
+                        found.append((node.lineno, getattr(node.func, "attr", ""), axes))
+                    except Exception:
+                        pass
+    except SyntaxError:
+        return []
+    return sorted(found)
+
+
 def _missing_name(exc, stmt, source, local, watch, params):
     """A sentence for a NameError, or ''.
 
@@ -776,21 +846,21 @@ def state(exc, path, source, watch=None, limit=700):
 
 
 def state_and_rules(exc, path, source, watch=None, limit=700, origin=False, pieces=False,
-                    ahead=False, names=False, layout=False):
+                    ahead=False, names=False, layout=False, apview=False):
     """(text, number of rules stated, whether it says what the old hint for this error tried
     to). Shapes alone say what was there; a rule says what was wrong with it. Only the second
     can stand in for advice."""
     try:
         return _state(exc, path, source, watch,
-                      limit + (350 if origin else 0) + (250 if pieces else 0), origin, pieces,
-                      ahead, names, layout)
+                      limit + (350 if origin else 0) + (250 if pieces else 0)
+                      + (450 if apview else 0), origin, pieces, ahead, names, layout, apview)
     except Exception as e:
         ERRORS.append(f"state: {type(e).__name__}: {e}")
         return "", 0, False
 
 
 def _state(exc, path, source, watch, limit, origin=False, pieces=False, ahead=False,
-           undefined=False, askew=False):
+           undefined=False, askew=False, apview=False):
     hit = _hit(exc, path, source)
     stmt = _statement_node(source, hit[0]) if hit else None
     if stmt is None:
@@ -878,6 +948,12 @@ def _state(exc, path, source, watch, limit, origin=False, pieces=False, ahead=Fa
     # `undefined`, not `names`: this function already has a local called names, the Name nodes of
     # the statement, and a parameter of that name was silently always true. The replay against
     # the previous commit caught it before it reached a seat.
+    if apview:
+        inside_ap = _function_spans(source).get(frame.f_code.co_name, (1, hit[0]))
+        view_rules = _ap_view(stmt, source, frame, local, hit[0], inside_ap)
+        if view_rules:
+            rules += view_rules
+            replaces = True
     if undefined:
         lost = _missing_name(exc, stmt, source, local, watch, params)
         if lost:
@@ -983,6 +1059,12 @@ PLANTS = [
          expect="nisa.nc_matmul(result_psum, lhs_tile, rhs_tile)",
          layout=["`lhs_tile` is (64, 128), but it was loaded on line", "from `lhsT`, which is (128, 64)",
                  "does not transpose", "Allocate `lhs_tile` with the shape of `lhsT`"]),
+    dict(name="access pattern that does not walk the partitions", level=1, case=0,
+         old="[sz_hin * sz_win, sz_p],      # partition stride",
+         new="[1, sz_p],      # partition stride",
+         expect="pool_view = in_tile.ap([",
+         apview=["each pair is one axis of the view", "The first pair walks the partitions",
+                 "its step must be one partition's size, 1024"]),
     # Not pass/fail. This asks the simulator a question: what does a result tile of the wrong
     # shape look like from outside? If the answer is a reshape error, then a kernel with no
     # reshape in it can produce one, and the line is the only thing that says where.
@@ -1034,7 +1116,7 @@ def selftest():
     ok2 = shown(marked) == "On K=1: line 3, `x`, raised E: m" and key(marked) == "On K=1: raised E: m"
     print(f"  shown / key: located text shown, then removed     -> {'ok' if ok2 else 'FAIL'}")
     rc = 0 if ok and ok2 else 1
-    state_rc = origin_rc = pieces_rc = ahead_rc = names_rc = layout_rc = 0
+    state_rc = origin_rc = pieces_rc = ahead_rc = names_rc = layout_rc = apview_rc = 0
 
     try:
         import nki
@@ -1163,6 +1245,13 @@ def selftest():
             print(f"      pieces says to cut, not to resize -> {'ok' if not gone else 'FAIL'}"
                   + (f"  missing: {gone}" if gone else ""))
             pieces_rc |= 0 if not gone else 1
+        if p.get("apview"):
+            seen = shown(state_and_rules(err, path, source, w, origin=True, apview=True)[0])
+            gone = [f for f in p["apview"] if f not in seen]
+            print(f"      apview  {seen.strip()[-330:] if seen else 'NOTHING SAID'}")
+            print(f"      apview explains the access pattern -> {'ok' if not gone else 'FAIL'}"
+                  + (f"  missing: {gone}" if gone else ""))
+            apview_rc |= 0 if not gone else 1
         if p.get("layout"):
             skew = shown(state_and_rules(err, path, source, w, origin=True, layout=True)[0])
             gone = [f for f in p["layout"] if f not in skew]
@@ -1200,6 +1289,8 @@ def selftest():
     print("Worked example: " + ("it runs, it is correct, and no tile in it is too tall."
                                 if example_rc == 0 else
                                 "SOMETHING FAILED. Do not use --features example until this passes."))
+    print("Access patterns: " + ("the planted pattern was explained." if apview_rc == 0 else
+                                 "SOMETHING FAILED. Do not use --features apview until this passes."))
     print("Loaded askew: " + ("the planted operand was traced to its load." if layout_rc == 0 else
                               "SOMETHING FAILED. Do not use --features layout until this passes."))
     print("Missing names: " + ("the planted name was explained." if names_rc == 0 else
@@ -1208,7 +1299,7 @@ def selftest():
                                if ahead_rc == 0 else
                                "SOMETHING FAILED. Do not use --features ahead until this passes."))
     return rc | (state_rc << 1) | (origin_rc << 2) | (pieces_rc << 3) | (ahead_rc << 4) \
-        | (tall_rc << 5) | (names_rc << 6) | (example_rc << 7) | (layout_rc << 8)
+        | (tall_rc << 5) | (names_rc << 6) | (example_rc << 7) | (layout_rc << 8) | (apview_rc << 9)
 
 
 def replay(log_path, level=None, features=("locate", "state")):

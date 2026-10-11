@@ -107,8 +107,11 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #            to tile it. The agent's own verified work as a building block -- the idea in Team
 #            20's submission, credited. A prompt change, reported as one; use with strict so
 #            only kernels the chip can run are counted.
+#   apview   for a failing tile.ap([[step, count], ...]), say what each pair means on the
+#            model's own tile, which pair is off, and how many axes its own later code expects.
+#            Where it speaks, the old advice for that error is not sent. Implies state.
 KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes", "ahead",
-                  "strict", "names", "example", "layout", "seed"}
+                  "strict", "names", "example", "layout", "seed", "apview"}
 
 SEED_KERNEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "findings",
                            "agent_solved_level3_1.py")
@@ -254,7 +257,8 @@ def _grade(source, level):
                                                                pieces="pieces" in FEATURES,
                                                                ahead="ahead" in FEATURES,
                                                                names="names" in FEATURES,
-                                                               layout="layout" in FEATURES)
+                                                               layout="layout" in FEATURES,
+                                                               apview="apview" in FEATURES)
                                       if "state" in FEATURES else ("", 0, False))
             drop = rules and ("facts" in FEATURES
                               or ("internal" in FEATURES and not isinstance(e, AssertionError))
@@ -814,7 +818,7 @@ def main():
                  f"{sorted(KNOWN_FEATURES)}")
     if asked & {"pieces", "ahead", "layout"}:
         asked.add("origin")
-    if asked & {"facts", "origin", "internal", "strict", "names"}:
+    if asked & {"facts", "origin", "internal", "strict", "names", "apview"}:
         asked.add("state")
     if "state" in asked:
         asked.add("locate")
