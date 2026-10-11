@@ -33,6 +33,21 @@ class _Tensor:
     def __getitem__(self, idx):
         return _Tensor(self.arr[idx], self.buffer)
 
+    def ap(self, pattern):
+        """A strided view, [[step, count], ...] over this tile's storage. The first pair must walk
+        the partitions; the message is the real simulator's, copied from a log."""
+        part = int(np.prod(self.arr.shape[1:]))
+        if pattern[0][0] != part:
+            raise AssertionError(
+                f"ap() pattern has invalid partition stride. Partition step {pattern[0][0]} must "
+                f"equal tensor free dimension size {part}. Pattern: {pattern}, tensor shape: "
+                f"{tuple(self.arr.shape)}")
+        flat = np.ascontiguousarray(self.arr).reshape(-1)
+        item = flat.itemsize
+        view = np.lib.stride_tricks.as_strided(
+            flat, shape=[c for _, c in pattern], strides=[st * item for st, _ in pattern])
+        return _Tensor(view, self.buffer)
+
 
 def affine_range(*args):
     return range(*args)
@@ -44,3 +59,11 @@ def ndarray(shape, dtype=np.float32, buffer=None):
         raise AssertionError("SBUF and PSUM tensors must have at least 2 dimensions "
                              "(partition-dim and free-dim)")
     return _Tensor(np.zeros(shape, dtype), buffer)
+
+
+def sum(view, axis, dst=None, **kw):
+    out = view.arr.sum(axis=tuple(axis))
+    if dst is not None:
+        dst.arr[...] = out
+        return dst
+    return _Tensor(out, sbuf)

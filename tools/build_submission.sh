@@ -27,6 +27,9 @@ PUSH=${2:-}
 UPSTREAM=yahavb/trainium-agent-labs
 BRANCH=${BRANCH:-kernel-agent-checker}
 NOTE=${NOTE:-}
+# Which branch of the team repo the code and results come from. dev by default; SRC_REF=achyu-checker
+# builds straight from that branch, skipping the merge into dev.
+SRC_REF=${SRC_REF:-dev}
 LEVEL3=${LEVEL3:?set LEVEL3 to the final level 3 result from the note, e.g. LEVEL3="9 of 12"}
 TEAM_REPO=$(cd "$(dirname "$0")/.." && pwd)
 PROJ=projects/02-kernel-agent
@@ -36,13 +39,14 @@ COAUTHORS=("Ashik M John <138590481+ashik-ece@users.noreply.github.com>"
            "Perumal Marimuthu <102660995+Perumal100@users.noreply.github.com>")
 TEAMMATES=(ashik-ece Perumal100)
 
-echo "== fetching the team repo's dev and john-manage"
-git -C "$TEAM_REPO" fetch -q origin dev john-manage
+echo "== fetching the team repo's $SRC_REF and john-manage"
+git -C "$TEAM_REPO" fetch -q origin "$SRC_REF" john-manage
 
 WORK=$(mktemp -d)
 SRC=$WORK/src
 mkdir -p "$SRC"
-git -C "$TEAM_REPO" archive origin/dev | tar -x -C "$SRC"
+git -C "$TEAM_REPO" archive "origin/$SRC_REF" | tar -x -C "$SRC"
+echo "   code and results from origin/$SRC_REF ($(git -C "$TEAM_REPO" log -1 --format=%h "origin/$SRC_REF"))"
 
 echo "== fresh clone of $UPSTREAM"
 git clone -q "https://github.com/$UPSTREAM.git" "$WORK/up"
@@ -98,7 +102,8 @@ Team: @ashik-ece (measurement and write-up), @Achyuthan-S (checker), @Perumal100
 Start with [\`$SUB/NOTE.md\`]($SUB/NOTE.md); paths in it are relative to \`$SUB/\`.
 
 - **Level 3 solved.** 0.30 in all 15 baseline runs. Solved by the checker in $LEVEL3 completed runs,
-  with only the feedback changed. The round-by-round recovery: \`$SUB/results/level3-recovery-transcript.md\`.
+  with only the feedback changed. **Verified on the real chip:** the agent's three distinct solutions are correct
+  on Trainium2 on the test shape and on four hostile inputs, 15 of 15 (\`$SUB/results/seat-150/device.out\`). The round-by-round recovery: \`$SUB/results/level3-recovery-transcript.md\`.
 - **Holes in the harness, each with a repro kernel** in \`$PROJ/findings/\`, run through \`nkibench.py --check\`
   on the real simulator (\`$SUB/results/seat-150/findings.out\`): on-chip tiles taller than 128 rows and
   kernels returning their output from PSUM both pass; the rule scan sees \`(256, M)\` but not \`(K, M)\`; two
@@ -110,7 +115,16 @@ Start with [\`$SUB/NOTE.md\`]($SUB/NOTE.md); paths in it are relative to \`$SUB/
   first prompt carries a worked plan ("prompt C"), and each candidate is written to its own file (the bytecode
   fix). Every run, its seat, commit and flags: \`$SUB/results/RUNS.tsv\`.
 
-Nothing here was timed on the device; all numbers come from \`nki.simulate\`.
+- **Two of the holes confirmed on the chip.** The tall-tile and PSUM-output kernels pass every case in the
+  simulator and fail the chip's compiler on every case where the hole is present.
+
+Scores come from \`nki.simulate\`; the level 3 solutions and the findings were also run on the chip, by calling the
+compiled kernel directly, the method in Team 20's device check. Nothing was timed.
+
+**The team.** If this work interests you, we would be glad to talk.
+- Ashik M John, measurement and write-up: [LinkedIn](https://www.linkedin.com/in/ashik-dev/) · @ashik-ece
+- Achyuthan Sivasankar, checker: [LinkedIn](https://www.linkedin.com/in/achyuthan-sivasankar-b0814b221) · @Achyuthan-S
+- Perumal Marimuthu, agent and prompt: [LinkedIn](https://www.linkedin.com/in/perumal-marimuthu-378574221) · @Perumal100
 EOF
 echo "== PR description, editable before pushing: $WORK/pr-body.md"
 sed 's/^/   | /' "$WORK/pr-body.md"
@@ -126,6 +140,14 @@ echo "== forking $UPSTREAM to $OWNER (no-op if the fork exists)"
 gh repo fork "$UPSTREAM" --clone=false --remote=false >/dev/null 2>&1 || true
 for i in 1 2 3 4 5 6; do gh api "repos/$OWNER/trainium-agent-labs" >/dev/null 2>&1 && break; sleep 5; done
 git push -q -f "https://github.com/$OWNER/trainium-agent-labs.git" "$BRANCH"
+URL=$(gh pr list --repo "$UPSTREAM" --head "$BRANCH" --author "$OWNER" --state open --json url --jq '.[0].url // empty')
+if [ -n "$URL" ]; then
+  # The branch push above has already updated the open PR's files. Bring its text up to date too.
+  echo "== updating the open pull request $URL"
+  gh pr edit "$URL" --body-file "$WORK/pr-body.md" >/dev/null
+  echo "$URL"
+  exit 0
+fi
 echo "== opening the pull request"
 URL=$(gh pr create --repo "$UPSTREAM" --base master --head "$OWNER:$BRANCH" \
   --title "$TEAM: kernel agent -- a checker that names the kernel's mistake, and holes found in the harness" \

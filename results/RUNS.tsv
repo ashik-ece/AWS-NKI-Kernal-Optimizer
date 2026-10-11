@@ -51,3 +51,11 @@ started	seat	name	features	commit	args
 2026-10-10 16:43	157	base-l8	none	dae55d8	--level 8 --rounds 8 --samples 4 --context 8192 --repeat 5
 2026-10-10 16:48	150	checker-l3c	internal,origin	dae55d8	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
 2026-10-10 16:48	158	checker-l3c	internal,origin	dae55d8	--level 3 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 20:47	156	seed-l4	internal,origin,strict,example,seed	964e998	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 20:47	154	seed-l4	internal,origin,strict,example,seed	964e998	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 20:47	157	seed-l4	internal,origin,strict,example,seed	964e998	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 20:47	153	seed-l4	internal,origin,strict,example,seed	964e998	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 20:47	151	seed-l4	internal,origin,strict,example,seed	964e998	--level 4 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 20:58	158	apview-l1	internal,origin,apview	9fc65d3	--level 1 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 20:58	159	apview-l1	internal,origin,apview	9fc65d3	--level 1 --rounds 8 --samples 4 --context 8192 --repeat 5
+2026-10-10 21:00	150	apview-l1	internal,origin,apview	9fc65d3	--level 1 --rounds 8 --samples 4 --context 8192 --repeat 5
