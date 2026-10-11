@@ -102,8 +102,39 @@ WEIGHTS = dict(parses=0.1, rules=0.2, runs=0.2, correct=0.5)
 #   layout   when a matmul's operands disagree on the contraction dimension, check how each
 #            was loaded: a tile allocated (M, K) and filled from a (K, M) input holds the same
 #            elements in the wrong layout, and the copy that did it was accepted. Implies origin.
+#   seed     level 4 starts from a kernel the agent itself wrote and the checker verified for
+#            level 3 (findings/agent_solved_level3_1.py, also correct on the chip), and is asked
+#            to tile it. The agent's own verified work as a building block -- the idea in Team
+#            20's submission, credited. A prompt change, reported as one; use with strict so
+#            only kernels the chip can run are counted.
 KNOWN_FEATURES = {"locate", "state", "facts", "origin", "internal", "pieces", "shapes", "ahead",
-                  "strict", "names", "example", "layout"}
+                  "strict", "names", "example", "layout", "seed"}
+
+SEED_KERNEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "findings",
+                           "agent_solved_level3_1.py")
+
+
+def seeded_prompt(level):
+    """Level 4's first prompt, built on the agent's own verified level 3 kernel. None if absent."""
+    try:
+        src = open(SEED_KERNEL).read()
+    except OSError:
+        return None
+    body = src.split('"""', 2)[2].strip() if src.startswith('"""') else src.strip()
+    s = nkibench.LEVELS[level]
+    return (
+        f"You wrote this NKI kernel earlier. A checker verified it, and it is correct on the "
+        f"Trainium chip, for one tile: lhsT of shape (128, 64) and rhs of shape (128, 512).\n\n"
+        f"```python\n{body}\n```\n\n"
+        f"Now write `{s['entry']}`, decorated with @nki.jit, that computes the same thing, "
+        f"lhsT.T @ rhs, for larger inputs: K and M are multiples of 128 and N is a multiple of "
+        f"512, up to K=512, M=512, N=1024. One nc_matmul takes a contraction of at most "
+        f"{nkibench.PMAX}, a stationary free dimension of at most {nkibench.GEMM_STATIONARY_FMAX} "
+        f"and a moving free dimension of at most {nkibench.GEMM_MOVING_FMAX}, and every SBUF or "
+        f"PSUM tile has at most {nkibench.PMAX} rows. So loop over tiles in all three dimensions, "
+        f"keep every on-chip tile to one tile's size, and write each result tile into its own "
+        f"slice of the output.\n\n"
+        f"Reply with ONE python code block containing the imports and the function.")
 FEATURES = set()
 
 # Where a candidate kernel is written before it is loaded. Anything that grades kernels while a
@@ -459,6 +490,14 @@ def enrich(error_text):
     return error_text
 
 def first_prompt(level, terse=0):
+    if "seed" in FEATURES and level == 4:
+        seeded = seeded_prompt(level)
+        if seeded:
+            return seeded
+    return _first_prompt(level, terse)
+
+
+def _first_prompt(level, terse=0):
     """Deliberately short, and it does NOT list the rules.
 
     Measured twice in this repo: hand a model an enumerated list of prohibitions and it audits
